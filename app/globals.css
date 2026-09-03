@@ -1,0 +1,33 @@
+html,body{margin:0;padding:0;background:#120a1f;color:#ece6f5;overflow:hidden;height:100%;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#c9b8ff}a:hover{color:#fff}
+textarea,button,input,select{font-family:inherit}
+button{-webkit-tap-highlight-color:transparent}
+.ox{font-family:var(--font-oxygen),Oxygen,sans-serif}
+@keyframes bv-tw{0%,100%{opacity:.2}50%{opacity:1}}
+@keyframes bv-driftR{from{transform:translateX(-20vw)}to{transform:translateX(120vw)}}
+@keyframes bv-driftL{from{transform:translateX(120vw)}to{transform:translateX(-20vw)}}
+@keyframes bv-diagR{from{transform:translate(-20vw,-10vh)}to{transform:translate(120vw,45vh)}}
+@keyframes bv-diagL{from{transform:translate(120vw,-10vh)}to{transform:translate(-20vw,45vh)}}
+@keyframes bv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes bv-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes bv-popc{from{opacity:0;transform:translate(-50%,-50%) translateY(8px) scale(.98)}to{opacity:1;transform:translate(-50%,-50%)}}
+@keyframes bv-flash{0%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}100%{box-shadow:0 0 40px 10px rgba(255,255,255,0)}}
+/* hover states (the prototype used style-hover attributes) */
+.bv-cluster:hover{border-color:rgba(255,255,255,.16)!important}
+.bv-note:hover{filter:brightness(1.06)}
+.bv-round:hover{border-color:rgba(255,255,255,.4)!important;color:#fff!important}
+.bv-check:hover{border-color:#120a1f!important;background:#120a1f!important}
+.bv-pill:hover{color:#fff!important;border-color:rgba(255,255,255,.4)!important}
+.bv-tab:hover{color:#fff!important}
+.bv-chip:hover{border-color:rgba(255,255,255,.5)!important}
+.bv-fab:hover{transform:scale(1.06)}
+.bv-primary:hover{filter:brightness(1.08)}
+.bv-danger:hover{border-color:rgba(255,154,154,.6)!important;color:#ff9a9a!important}
+.bv-white:hover{background:#fff!important}
+.bv-ghost:hover{opacity:1!important;background:rgba(255,255,255,.1)!important}
+.bv-input:focus{border-color:rgba(201,184,255,.6)!important;outline:none}
+.bv-tileact{opacity:.55}.bv-tileact:hover{opacity:1;background:rgba(18,10,31,.08)}
+textarea.bv-ta:focus{outline:none}
+input[type=date],input[type=time]{color-scheme:dark}
+@media (prefers-reduced-motion:reduce){.bv-drifter,.bv-star{animation:none!important}}

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oxygen:wght@400;700&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:#120a1f;color:#ece6f5;font-family:'Space Grotesk',sans-serif;overflow:hidden;height:100%}
+*{box-sizing:border-box}
+a{color:#c9b8ff}a:hover{color:#fff}
+textarea,button,input{font-family:inherit}
+@keyframes bv-tw{0%,100%{opacity:.2}50%{opacity:1}}
+@keyframes bv-driftR{from{transform:translateX(-20vw)}to{transform:translateX(120vw)}}
+@keyframes bv-driftL{from{transform:translateX(120vw)}to{transform:translateX(-20vw)}}
+@keyframes bv-diagR{from{transform:translate(-20vw,-10vh)}to{transform:translate(120vw,45vh)}}
+@keyframes bv-diagL{from{transform:translate(120vw,-10vh)}to{transform:translate(-20vw,45vh)}}
+@keyframes bv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes bv-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes bv-flash{0%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}100%{box-shadow:0 0 40px 10px rgba(255,255,255,0)}}
+</style>
+</helmet>
+<div data-screen-label="Canvas" ref="{{ rootRef }}" style="position:fixed;inset:0;background:radial-gradient(ellipse at 30% 20%, #1c1130 0%, #120a1f 55%, #0b0616 100%);overflow:hidden;touch-action:none;user-select:none;cursor:grab" onClick="{{ canvasClick }}" onPointerDown="{{ panStart }}" onPointerMove="{{ panMove }}" onPointerUp="{{ panEnd }}" onPointerCancel="{{ panEnd }}">
+  {{ sky }}
+  <div ref="{{ worldRef }}" style="position:absolute;left:0;top:0;transform-origin:0 0;transform:translate({{ pan.x }}px, {{ pan.y }}px) scale({{ zoom }});transition:{{ worldTransition }};will-change:transform">
+    <sc-for list="{{ clusters }}" as="c" hint-placeholder-count="3">
+      <div data-cluster="1" onClick="{{ c.focus }}" style="position:absolute;left:0;top:0;width:{{ c.w }}px;min-height:{{ c.minH }}px;transform:translate({{ c.x }}px, {{ c.y }}px);transition:transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s, width .5s, background .4s;opacity:{{ c.opacity }};pointer-events:{{ c.pe }};cursor:{{ c.cursor }};padding:{{ c.pad }};border-radius:22px;border:1px solid rgba(255,255,255,.08);background:{{ c.bg }};box-shadow:inset 0 1px 0 rgba(255,255,255,.05)" style-hover="border-color:rgba(255,255,255,.16)">
+        <sc-if value="{{ c.collapsed }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:{{ c.colDir }};align-items:center;gap:14px;height:100%">
+            {{ c.iconEl }}
+            <div style="font-family:Oxygen,sans-serif;font-weight:700;font-size:11px;letter-spacing:.04em;color:rgba(243,238,252,.8);writing-mode:{{ c.labelWM }}">{{ c.label }}</div>
+            <div style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.1em;color:rgba(236,230,245,.4);margin-left:{{ c.countMl }}">{{ c.count }}</div>
+            <button data-nopan="1" onClick="{{ c.toggle }}" title="Expand" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:rgba(236,230,245,.7);cursor:pointer;display:grid;place-items:center;padding:0;font-size:13px;line-height:1" style-hover="border-color:rgba(255,255,255,.4);color:#fff">{{ c.glyph }}</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ c.expanded }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+            <div style="display:flex;align-items:center;gap:12px">
+              {{ c.iconEl }}
+              <div style="font-family:Oxygen,sans-serif;font-weight:700;font-size:18px;letter-spacing:.02em;color:#f3eefc;text-shadow:0 0 16px rgba(243,238,252,.35)">{{ c.label }}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.1em;color:rgba(236,230,245,.4)">{{ c.count }}</div>
+              <sc-if value="{{ c.rail }}" hint-placeholder-val="{{ false }}">
+                <button data-nopan="1" onClick="{{ c.toggle }}" title="Collapse" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:rgba(236,230,245,.7);cursor:pointer;display:grid;place-items:center;padding:0;font-size:13px;line-height:1" style-hover="border-color:rgba(255,255,255,.4);color:#fff">{{ c.glyph }}</button>
+              </sc-if>
+            </div>
+          </div>
+          <sc-if value="{{ c.empty }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:13px;color:rgba(236,230,245,.32);padding:10px 4px 6px;font-style:italic">Nothing here yet</div>
+          </sc-if>
+          <div style="display:flex;flex-wrap:wrap;gap:10px">
+            <sc-for list="{{ c.notes }}" as="n" hint-placeholder-count="2">
+              <div data-nopan="1" data-note-id="{{ n.id }}" onClick="{{ n.open }}" style="flex:1 1 calc(50% - 5px);min-width:130px;max-width:100%;position:relative;padding:12px 12px 10px;border-radius:14px;background:{{ n.bg }};border:none;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;animation:{{ n.anim }};opacity:{{ n.opacity }};transition:opacity .4s, background .3s" style-hover="filter:brightness(1.06)">
+                <div style="font-size:14px;line-height:1.35;color:#120a1f;font-weight:500;text-wrap:pretty;padding-right:22px;text-decoration:{{ n.deco }}">{{ n.text }}</div>
+                <div style="display:flex;gap:8px;margin-top:10px;align-items:center;min-height:14px">
+                  {{ n.iconEls }}
+                  <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:rgba(18,10,31,.7)">{{ n.commentEl }}</div>
+                </div>
+                <button onClick="{{ n.toggle }}" title="{{ n.toggleTitle }}" style="position:absolute;top:9px;right:9px;width:20px;height:20px;border-radius:50%;border:1.5px solid {{ n.checkBorder }};background:{{ n.checkBg }};color:#f3eefc;font-size:11px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0" style-hover="border-color:#120a1f;background:#120a1f">{{ n.checkMark }}</button>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div data-nopan="1" style="position:absolute;left:0;right:0;top:0;padding:{{ barPad }};display:flex;align-items:center;justify-content:space-between;gap:12px;pointer-events:none;background:linear-gradient(180deg, rgba(18,10,31,.92) 0%, rgba(18,10,31,.6) 65%, rgba(18,10,31,0) 100%)">
+    <div style="display:flex;align-items:center;gap:14px;pointer-events:auto">
+      <div style="font-family:Oxygen,sans-serif;font-weight:700;font-size:{{ titleSize }}px;letter-spacing:.28em;color:#f3eefc;text-shadow:0 0 18px rgba(201,184,255,.55)">BRAINVERSE</div>
+      <sc-if value="{{ focused }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ back }}" style="font-family:Oxygen,sans-serif;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:rgba(236,230,245,.75);cursor:pointer;backdrop-filter:blur(10px)" style-hover="color:#fff;border-color:rgba(255,255,255,.4)">{{ backLabel }}</button>
+      </sc-if>
+      <div style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.14em;color:rgba(236,230,245,.4);display:{{ metaDisplay }}">{{ openCount }} OPEN · {{ doneCount }} DONE</div>
+    </div>
+    <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(12px);pointer-events:auto">
+      <sc-for list="{{ views }}" as="v" hint-placeholder-count="3">
+        <button onClick="{{ v.pick }}" style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:9px 14px;border-radius:999px;border:1px solid {{ v.border }};background:{{ v.bg }};color:{{ v.fg }};cursor:pointer;transition:all .25s;min-height:34px" style-hover="color:#fff">{{ v.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:50%;bottom:{{ toastBottom }}px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(12px);font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#f3eefc;animation:bv-pop .3s ease-out;white-space:nowrap">{{ toast }}</div>
+  </sc-if>
+
+  <button data-nopan="1" onClick="{{ openAdd }}" title="Add a thought" style="position:absolute;{{ fabPos }};display:{{ fabDisplay }};width:60px;height:60px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%);color:#120a1f;font-size:30px;line-height:1;font-weight:300;cursor:pointer;box-shadow:0 0 34px rgba(169,140,255,.55), 0 10px 30px rgba(0,0,0,.4);place-items:center;padding:0;transition:transform .2s" style-hover="transform:scale(1.06)">+</button>
+
+  <sc-if value="{{ noteOpen }}" hint-placeholder-val="{{ false }}">
+    <div data-nopan="1" onClick="{{ stop }}" style="position:absolute;{{ panelPos }};overflow:auto;border-radius:24px;padding:20px 20px 16px;background:{{ panelBg }};border:1px solid {{ panelBorder }};backdrop-filter:blur(24px) saturate(1.2);box-shadow:0 30px 80px rgba(0,0,0,.5);animation:bv-pop .25s ease-out;display:flex;flex-direction:column;gap:14px;cursor:default">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-family:Oxygen,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#c9b8ff">Note</div>
+        <button onClick="{{ back }}" title="Back to area" style="width:28px;height:28px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:rgba(236,230,245,.7);cursor:pointer;display:grid;place-items:center;padding:0;font-size:14px;line-height:1" style-hover="border-color:rgba(255,255,255,.4);color:#fff">×</button>
+      </div>
+      <textarea value="{{ editText }}" onChange="{{ editTextChange }}" rows="3" style="width:100%;resize:none;border:none;outline:none;background:transparent;color:#f3eefc;font-size:18px;line-height:1.35;padding:0;caret-color:#c9b8ff" style-focus="outline:none"></textarea>
+      <div style="display:grid;grid-template-columns:60px 1fr;column-gap:12px;row-gap:12px;align-items:start;padding-top:4px">
+        <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);padding-top:9px">Life</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ editCat }}" as="o" hint-placeholder-count="4">
+            <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:0 10px 0 8px;height:30px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;white-space:nowrap" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+          </sc-for>
+        </div>
+        <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);padding-top:9px">Project</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ editProj }}" as="o" hint-placeholder-count="4">
+            <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:0 10px 0 8px;height:30px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;white-space:nowrap" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+          </sc-for>
+        </div>
+        <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);padding-top:9px">Priority</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ editPrio }}" as="o" hint-placeholder-count="3">
+            <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:0 10px 0 8px;height:30px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;white-space:nowrap" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding-top:6px;border-top:1px solid rgba(255,255,255,.1)">
+        <div style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4)">Comments · {{ commentCount }}</div>
+        <sc-if value="{{ hasComments }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:stretch;gap:8px">
+            <button onClick="{{ prevComment }}" style="width:30px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:rgba(236,230,245,.7);cursor:pointer;font-size:16px;padding:0;flex:none" style-hover="border-color:rgba(255,255,255,.4);color:#fff">‹</button>
+            <div style="flex:1;min-width:0;position:relative;padding:12px 36px 12px 14px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);display:flex;flex-direction:column;gap:8px">
+              <button onClick="{{ deleteComment }}" title="Delete comment" style="position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;border:none;background:transparent;cursor:pointer;display:grid;place-items:center;padding:0;opacity:.55" style-hover="opacity:1;background:rgba(255,255,255,.1)">{{ trashEl }}</button>
+              <div style="font-size:14px;line-height:1.4;color:#f3eefc;text-wrap:pretty">{{ comment.text }}</div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:rgba(236,230,245,.4)"><span>{{ comment.at }}</span><span>{{ commentPos }}</span></div>
+            </div>
+            <button onClick="{{ nextComment }}" style="width:30px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:rgba(236,230,245,.7);cursor:pointer;font-size:16px;padding:0;flex:none" style-hover="border-color:rgba(255,255,255,.4);color:#fff">›</button>
+          </div>
+        </sc-if>
+        <input value="{{ commentDraft }}" onChange="{{ commentChange }}" onKeyDown="{{ commentKey }}" placeholder="Add a comment, Enter to save" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#f3eefc;font-size:13.5px;outline:none" style-focus="border-color:rgba(201,184,255,.6)">
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:2px">
+        <button onClick="{{ deleteNote }}" style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;padding:11px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:rgba(236,230,245,.75);cursor:pointer" style-hover="border-color:rgba(255,154,154,.6);color:#ff9a9a">Delete note</button>
+        <button onClick="{{ toggleEditDone }}" style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;padding:11px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.9);background:rgba(255,255,255,.92);color:#120a1f;font-weight:700;cursor:pointer" style-hover="background:#fff">{{ editDoneLabel }}</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ adding }}" hint-placeholder-val="{{ false }}">
+    <div data-nopan="1" onClick="{{ closeAdd }}" style="position:absolute;inset:0;background:rgba(8,4,16,.62);backdrop-filter:blur(6px);display:flex;align-items:{{ modalAlign }};justify-content:center;padding:{{ modalPad }};cursor:default">
+      <div onClick="{{ stop }}" style="width:100%;max-width:520px;border-radius:24px;padding:22px 22px 18px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);box-shadow:0 30px 80px rgba(0,0,0,.5);backdrop-filter:blur(24px) saturate(1.2);animation:bv-pop .25s ease-out;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-family:Oxygen,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#c9b8ff">Brain dump</div>
+          <div style="font-size:11px;color:rgba(236,230,245,.4)">Enter to add · Esc to close</div>
+        </div>
+        <textarea autoFocus="{{ true }}" value="{{ draft.text }}" onChange="{{ setText }}" onKeyDown="{{ keyDown }}" placeholder="What's on your mind?" rows="3" style="width:100%;resize:none;border:none;outline:none;background:transparent;color:#f3eefc;font-size:20px;line-height:1.35;padding:2px 0;caret-color:#c9b8ff" style-focus="outline:none"></textarea>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);width:64px">Life</span>
+            <sc-for list="{{ catOptions }}" as="o" hint-placeholder-count="4">
+              <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 11px 6px 9px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;min-height:30px" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);width:64px">Project</span>
+            <sc-for list="{{ projOptions }}" as="o" hint-placeholder-count="4">
+              <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 11px 6px 9px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;min-height:30px" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-family:Oxygen,sans-serif;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(236,230,245,.4);width:64px">Priority</span>
+            <sc-for list="{{ prioOptions }}" as="o" hint-placeholder-count="3">
+              <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 11px 6px 9px;border-radius:999px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.fg }};cursor:pointer;transition:all .2s;min-height:30px" style-hover="border-color:rgba(255,255,255,.5)">{{ o.iconEl }}{{ o.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:4px">
+          <div style="font-size:12px;color:rgba(236,230,245,.45)">{{ routeHint }}</div>
+          <button onClick="{{ submit }}" style="font-family:Oxygen,sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;padding:12px 20px;border-radius:999px;border:none;background:linear-gradient(135deg,#c9b8ff,#7f5cf0);color:#120a1f;font-weight:700;cursor:pointer;box-shadow:0 0 24px rgba(169,140,255,.4);opacity:{{ submitOpacity }}" style-hover="filter:brightness(1.08)">Drop it</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;ambientMotion&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;subtle&quot;,&quot;lively&quot;,&quot;off&quot;],&quot;default&quot;:&quot;subtle&quot;,&quot;tsType&quot;:&quot;'subtle'|'lively'|'off'&quot;,&quot;section&quot;:&quot;Space&quot;},&quot;showDrifters&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Space&quot;},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;category&quot;,&quot;project&quot;,&quot;priority&quot;],&quot;default&quot;:&quot;category&quot;,&quot;tsType&quot;:&quot;'category'|'project'|'priority'&quot;,&quot;section&quot;:&quot;Canvas&quot;}}">
+const ico=(name,hex)=>`https://api.iconify.design/hugeicons:${name}.svg?color=%23${hex||'f3eefc'}`;
+const img=(src,size,style,title)=>React.createElement('img',{src,alt:title||'',title,style:{width:size,height:size,flex:'none',...(style||{})}});
+const CATS=[{id:'sport',label:'Sport',icon:'dumbbell-01',hue:150},{id:'food',label:'Food',icon:'restaurant-02',hue:60},{id:'habits',label:'Habits',icon:'repeat',hue:310},{id:'business',label:'Business',icon:'briefcase-01',hue:240}];
+const PROJS=[{id:'vita',label:'Vita',icon:'smart-phone-01'},{id:'mb',label:'Mooi Bekeken',icon:'camera-01'},{id:'acq',label:'Aquisitie',icon:'target-01'},{id:'client',label:'Client projects',icon:'user-group'}];
+const PRIOS=[{id:'P1',n:1,label:'P1 · Now',icon:'flash'},{id:'P2',n:2,label:'P2 · Soon',icon:'clock-01'},{id:'P3',n:3,label:'P3 · Someday',icon:'moon'}];
+const catOf=id=>CATS.find(c=>c.id===id);
+const VIEWS=[{id:'category',label:'Categories'},{id:'project',label:'Projects'},{id:'priority',label:'Priority'}];
+const tint=(hue,a)=>hue==null?`rgba(255,255,255,${a*.7})`:`oklch(80% 0.13 ${hue} / ${a})`;
+const SEED=[
+ {text:'Run 3x this week, before work',category:'sport',priority:2},
+ {text:'Book padel court for Thursday',category:'sport',comments:[{text:'Rens can only do 19:00 or later',at:'Tue 12:40'},{text:'Court 3 is the good one',at:'Tue 12:41'}]},
+ {text:'Stretch routine after every desk day',category:'sport',priority:3},
+ {text:'Meal prep Sunday: 4 lunches',category:'food',priority:2},
+ {text:'Kill the 15:00 sugar snack',category:'food'},
+ {text:'Read 20 pages before touching the phone',category:'habits',priority:1},
+ {text:'Phone off at 22:30',category:'habits'},
+ {text:'Raise hourly rate for new clients in Q4',category:'business',project:'acq',priority:2},
+ {text:'Quarterly numbers review, block a morning',category:'business',priority:3},
+ {text:'Sketch the Vita onboarding flow',project:'vita',priority:1},
+ {text:'Decide: Supabase or Firebase for Vita',project:'vita',priority:2,comments:[{text:'Supabase has row-level security out of the box',at:'Mon 09:12'}]},
+ {text:'Blog: branding photography for MKB',project:'mb',category:'business',priority:2},
+ {text:'Update portfolio with the sports series',project:'mb',priority:3},
+ {text:'Fix contact form spam on the site',project:'mb',priority:1},
+ {text:'Follow up 3 leads from the netwerkborrel',project:'acq',priority:1},
+ {text:'LinkedIn post: behind the scenes of last shoot',project:'acq'},
+ {text:'Deliver edited photos, Friday latest',project:'client',priority:1},
+ {text:'Idea: a tiny app that tracks coffee intake'},
+ {text:'Send invoice for June shoot',project:'client',done:true},
+ {text:'Cancel unused SaaS subscriptions',category:'business',done:true}
+].map((n,i)=>({id:'s'+i,category:null,project:null,priority:null,done:false,comments:[],...n}));
+const ROUTES=[[/\b(run|gym|padel|train|stretch|bike|swim|workout)/i,'category','sport'],[/\b(meal|eat|food|snack|sugar|cook|lunch|dinner)/i,'category','food'],[/\b(read|sleep|phone|habit|journal|meditat|wake)/i,'category','habits'],[/\b(invoice|rate|tax|numbers|revenue|boekhoud|kvk)/i,'category','business'],[/vita/i,'project','vita'],[/\b(blog|portfolio|site|website|seo|mooi bekeken)/i,'project','mb'],[/\b(lead|linkedin|follow.?up|acquisitie|aquisitie|pitch|offerte)/i,'project','acq'],[/\b(client|klant|deliver|shoot)/i,'project','client']];
+const rnd=seed=>{let t=seed>>>0;return()=>{t=(t*1664525+1013904223)>>>0;return t/4294967296}};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const stamp=()=>{const d=new Date();return d.toLocaleDateString('en-GB',{weekday:'short'})+' '+d.toTimeString().slice(0,5)};
+const el=React.createElement;
+const LS='brainverse.';
+
+class Component extends DCLogic{
+  constructor(props){super(props);
+    let notes=null,view=null,rails=null;try{notes=JSON.parse(localStorage.getItem(LS+'notes'));view=localStorage.getItem(LS+'view');rails=JSON.parse(localStorage.getItem(LS+'rails'))}catch(e){}
+    if(Array.isArray(notes))notes=notes.map(n=>({comments:[],...n}));
+    const vw=window.innerWidth,vh=window.innerHeight;
+    this.state={view:view||props.startView||'category',notes:Array.isArray(notes)&&notes.length?notes:SEED,rails:rails||{_un:false,_done:false},pan:{x:0,y:0},zoom:1,glide:false,focus:null,focusZoom:1,cIdx:0,commentDraft:'',adding:false,draft:{text:'',category:null,project:null,priority:null},vw,vh,toast:null,flash:null};
+    this.state.zoom=this.fitZoom(this.state);this.state.pan=this.centerPan(this.state);
+    this.pointers=new Map();this.pinch=null;this.drag=null;this.moved=false;this.rootRef=React.createRef();this.worldRef=React.createRef();
+    const r=rnd(7);this.stars=Array.from({length:170},()=>({x:r()*100,y:r()*100,s:r()<.85?1+r()*1.2:2.2+r()*1.4,d:2.5+r()*5,dl:-r()*8,o:.35+r()*.65}));
+    const R=Math.random;const pick=(a,b)=>a+R()*(b-a);
+    this.drift=['rocket','satellite','astronaut','cat','comet'].map(kind=>({kind,dir:R()<.5?-1:1,top:pick(6,84),dur:kind==='comet'?pick(80,120):pick(150,260),delay:-pick(0,200),spinDir:R()<.5?'normal':'reverse',spinDur:pick(45,110)}));
+  }
+  componentDidMount(){
+    this.onR=()=>{const ns={...this.state,vw:window.innerWidth,vh:window.innerHeight};if(this.state.focus)this.setState({vw:ns.vw,vh:ns.vh});else this.setState({vw:ns.vw,vh:ns.vh,zoom:this.fitZoom(ns),pan:this.centerPan(ns)})};window.addEventListener('resize',this.onR);
+    this.onK=e=>{const typing=/TEXTAREA|INPUT/.test(e.target.tagName);
+      const f=this.state.focus;
+      if(e.key==='Enter'&&e.shiftKey&&!this.state.adding){e.preventDefault();this.quickAddHere();return}
+      if(e.key==='Tab'&&!this.state.adding&&!typing){e.preventDefault();const i=VIEWS.findIndex(v=>v.id===this.state.view);const next=VIEWS[(i+(e.shiftKey?-1:1)+VIEWS.length)%VIEWS.length].id;this.overview({view:next});this.save(this.state.notes,next);return}
+      if(!typing&&!this.state.adding){
+        if(e.key==='ArrowUp'){e.preventDefault();this.dive();return}
+        if(e.key==='ArrowDown'){e.preventDefault();if(f)this.back();return}
+        if(f&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();this.step(e.key==='ArrowLeft'?-1:1);return}
+      }
+      if(e.key==='Escape'){if(this.state.adding)this.setState({adding:false});else if(f)this.back()}
+      else if(!typing&&!this.state.adding&&(e.key==='n'||e.key==='N')&&!e.metaKey&&!e.ctrlKey){e.preventDefault();this.setState({adding:true})}};
+    window.addEventListener('keydown',this.onK);
+    this.onW=e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.0018);this.zoomAt(e.clientX,e.clientY,this.state.zoom*f)};
+    if(this.rootRef.current)this.rootRef.current.addEventListener('wheel',this.onW,{passive:false});
+  }
+  componentWillUnmount(){window.removeEventListener('resize',this.onR);window.removeEventListener('keydown',this.onK);if(this.rootRef.current)this.rootRef.current.removeEventListener('wheel',this.onW)}
+  save(notes,view){try{localStorage.setItem(LS+'notes',JSON.stringify(notes));if(view)localStorage.setItem(LS+'view',view)}catch(e){}}
+  lp(s){const mobile=s.vw<640;const W=mobile?Math.min(360,s.vw-28):340;const railW=280,railC=56,gapX=44,gapY=44;
+    const leftW=mobile?W:(s.rails._un?railC:railW),rightW=mobile?W:(s.rails._done?railC:railW);
+    const cols=mobile?1:clamp(Math.floor((s.vw-48-leftW-rightW-2*gapX+gapX)/(W+gapX)),1,3);
+    return{mobile,cols,W,gapX,gapY,railW,railC,leftW,rightW,worldW:mobile?W:leftW+gapX+cols*(W+gapX)+rightW}}
+  fitZoom(s){const {worldW,mobile}=this.lp(s);return mobile?1:Math.min(1,(s.vw-32)/worldW)}
+  centerPan(s){const {worldW,mobile}=this.lp(s);const z=this.fitZoom(s);return{x:Math.round((s.vw-worldW*z)/2),y:mobile?96:120}}
+  overview(extra){const s={...this.state,...(extra||{})};this.cool=Date.now()+700;this.setState({...(extra||{}),focus:null,zoom:this.fitZoom(s),pan:this.centerPan(s),glide:true})}
+  estH(n,W){const perRow=W<200?1:2;const rows=Math.ceil(n/perRow);return 74+(n?rows*94+(rows-1)*10:44)}
+  groups(){
+    const {view,notes}=this.state;
+    const dims=view==='category'?CATS:view==='project'?PROJS:PRIOS;
+    const keyOf=n=>view==='category'?n.category:view==='project'?n.project:(n.priority?'P'+n.priority:null);
+    const groups=dims.map(d=>({key:d.id,label:d.label,icon:d.icon,notes:[]}));
+    const un={key:'_un',label:'Unsorted',icon:'inbox',rail:true,notes:[]},done={key:'_done',label:'Done',icon:'checkmark-circle-02',rail:true,notes:[]};
+    notes.forEach(n=>{if(n.done)return done.notes.push(n);(groups.find(g=>g.key===keyOf(n))||un).notes.push(n)});
+    // P1 → P3 first, then unprioritised in creation order (array order = creation order)
+    if(view!=='priority'){const byPrio=(a,b)=>(a.priority||9)-(b.priority||9);[...groups,un].forEach(g=>g.notes.sort(byPrio))}
+    return{un,groups,done};
+  }
+  placed(){
+    const s=this.state;const L=this.lp(s);const {un,groups,done}=this.groups();const out=[];
+    const put=(g,x,y,w,collapsed)=>{const h=collapsed?(L.mobile?52:200):this.estH(g.notes.length,w);out.push({g,x,y,w,h,collapsed:!!collapsed});return h};
+    if(L.mobile){let y=0;y+=put(un,0,y,L.W,s.rails._un)+L.gapY;groups.forEach(g=>{y+=put(g,0,y,L.W)+L.gapY});put(done,0,y,L.W,s.rails._done)}
+    else{put(un,0,0,L.leftW,s.rails._un);const x0=L.leftW+L.gapX;let y=0;
+      for(let i=0;i<groups.length;i+=L.cols){const row=groups.slice(i,i+L.cols);const rowH=Math.max(...row.map(g=>this.estH(g.notes.length,L.W)));row.forEach((g,ci)=>put(g,x0+ci*(L.W+L.gapX),y,L.W));y+=rowH+L.gapY}
+      put(done,x0+L.cols*(L.W+L.gapX),0,L.rightW,s.rails._done)}
+    return out;
+  }
+  zoomAt(cx,cy,nz){
+    const s=this.state;nz=clamp(nz,.3,3.4);if(Date.now()<(this.cool||0))return;
+    if(s.focus&&nz<s.focusZoom*.8){this.back();return}
+    const k=nz/s.zoom;this.setState({zoom:nz,glide:false,pan:{x:cx-(cx-s.pan.x)*k,y:cy-(cy-s.pan.y)*k}});
+  }
+  focusCluster(key){
+    const s=this.state;const c=this.placed().find(p=>p.g.key===key);if(!c)return;
+    const scale=clamp(Math.min((s.vw-40)/c.w,(s.vh-150)/c.h),.6,1.9);
+    const x=(s.vw-c.w*scale)/2-c.x*scale;const y=Math.max(96,(s.vh-c.h*scale)/2)-c.y*scale;
+    this.cool=Date.now()+700;this.setState({focus:{type:'cluster',key},focusZoom:scale,zoom:scale,pan:{x,y},glide:true});
+  }
+  focusNote(noteId,clusterKey,rect){
+    const s=this.state;const {mobile}=this.lp(s);
+    // read the world's live transform so mid-glide measurements still map to world coords
+    let tx=s.pan.x,ty=s.pan.y,sc=s.zoom;try{const m=new DOMMatrix(getComputedStyle(this.worldRef.current).transform);if(m.a){tx=m.e;ty=m.f;sc=m.a}}catch(e){}
+    const nx=(rect.left-tx)/sc,ny=(rect.top-ty)/sc,nw=rect.width/sc,nh=rect.height/sc;
+    const panelW=s.vw>=900?420:0;
+    const scale=mobile?clamp(Math.min((s.vw-60)/nw,(s.vh*.34)/nh),1,2.6):clamp(Math.min(380/nw,(s.vh-200)/nh),1.2,3);
+    const cx=mobile?s.vw/2:(s.vw-panelW)/2,cy=mobile?s.vh*.22:s.vh/2;
+    this.cool=Date.now()+700;
+    this.setState({focus:{type:'note',key:clusterKey,noteId},focusZoom:scale,zoom:scale,pan:{x:cx-(nx+nw/2)*scale,y:cy-(ny+nh/2)*scale},glide:true,cIdx:0,commentDraft:''});
+  }
+  goNote(id,key){const elm=document.querySelector(`[data-note-id="${id}"]`);if(elm)this.focusNote(id,key,elm.getBoundingClientRect())}
+  step(dir){
+    const f=this.state.focus;if(!f)return;const wrap=(i,n)=>((i%n)+n)%n;
+    if(f.type==='cluster'){const keys=this.placed().filter(p=>!p.collapsed).map(p=>p.g.key);if(keys.length<2)return;this.focusCluster(keys[wrap(keys.indexOf(f.key)+dir,keys.length)]);return}
+    const {un,groups,done}=this.groups();const g=[...groups,un,done].find(g=>g.key===f.key);if(!g||g.notes.length<2)return;
+    this.goNote(g.notes[wrap(g.notes.findIndex(n=>n.id===f.noteId)+dir,g.notes.length)].id,g.key);
+  }
+  quickAddHere(){
+    const f=this.state.focus;const {view}=this.state;const draft={text:'',category:null,project:null,priority:null};
+    if(f){const k=f.key;
+      if(view==='category'&&catOf(k))draft.category=k;
+      else if(view==='project'&&PROJS.find(p=>p.id===k))draft.project=k;
+      else if(view==='priority'&&/^P[123]$/.test(k))draft.priority=+k[1];
+      if(f.type==='note'){this.focusCluster(k);setTimeout(()=>this.setState({adding:true,draft}),450);return}}
+    this.setState({adding:true,draft});
+  }
+  dive(){
+    const f=this.state.focus;
+    if(!f){const first=this.placed().find(p=>!p.collapsed&&!p.g.rail)||this.placed().find(p=>!p.collapsed);if(first)this.focusCluster(first.g.key);return}
+    if(f.type==='cluster'){const {un,groups,done}=this.groups();const g=[...groups,un,done].find(g=>g.key===f.key);if(g&&g.notes.length)this.goNote(g.notes[0].id,g.key)}
+  }
+  back(){const f=this.state.focus;this.pinch=null;if(f&&f.type==='note')this.focusCluster(f.key);else this.overview()}
+  updateNote(id,patch){const notes=this.state.notes.map(n=>n.id===id?{...n,...patch}:n);this.setState({notes});this.save(notes)}
+  toggleDone(id){const n=this.state.notes.find(n=>n.id===id);this.updateNote(id,{done:!n.done});this.setState({flash:id});this.toast(!n.done?'Moved to Done':'Back on the canvas')}
+  toast(text){clearTimeout(this.tt);this.setState({toast:text});this.tt=setTimeout(()=>this.setState({toast:null}),2200)}
+  routeDraft(d){if(d.category||d.project)return{...d,auto:false};const out={...d,auto:false};for(const [re,dim,id] of ROUTES){if(re.test(d.text)){out[dim]=id;out.auto=true;break}}return out}
+  submit(){const d=this.state.draft;const text=d.text.trim();if(!text)return;const r=this.routeDraft({...d,text});
+    const note={id:'n'+Date.now(),text,category:r.category,project:r.project,priority:r.priority,done:false,comments:[]};
+    const notes=[...this.state.notes,note];const target=this.state.view==='category'?catOf(r.category):this.state.view==='project'?PROJS.find(p=>p.id===r.project):(r.priority?PRIOS[r.priority-1]:null);
+    this.setState({notes,adding:false,draft:{text:'',category:null,project:null,priority:null},flash:note.id});this.save(notes);
+    this.toast(target?(r.auto?'Auto-routed to ':'Dropped in ')+target.label:'Dropped in Unsorted')}
+  chips(list,dim,current,set){return list.map(o=>{const val=dim==='priority'?o.n:o.id;const on=current===val;const hue=dim==='category'&&on?o.hue:null;
+    return{label:o.label,iconEl:img(ico(o.icon,on?'120a1f':'cfc7dd'),13),bg:on?(hue!=null?`oklch(85% 0.12 ${hue})`:'rgba(255,255,255,.9)'):'rgba(255,255,255,.06)',fg:on?'#120a1f':'#cfc7dd',border:on?'transparent':'rgba(255,255,255,.14)',pick:e=>{e.stopPropagation();set(on?null:val)}}})}
+  buildClusters(){
+    const s=this.state;const {view,flash,focus}=s;const {mobile}=this.lp(s);
+    const other=view==='category'?'project':view==='project'?'category':null;
+    return this.placed().map(({g,x,y,w,h,collapsed})=>{
+      const isF=focus&&focus.key===g.key;const dim=focus&&!isF;const noteF=isF&&focus.type==='note';
+      const c={key:g.key,label:g.label,iconEl:img(ico(g.icon),collapsed?20:28,{opacity:.95}),x,y,w,h,minH:collapsed?h:0,rail:!!g.rail,collapsed,expanded:!collapsed,
+        colDir:mobile?'row':'column',labelWM:mobile?'horizontal-tb':'vertical-rl',countMl:mobile?'auto':'0',glyph:collapsed?(mobile?'▾':g.key==='_un'?'›':'‹'):(mobile?'▴':g.key==='_un'?'‹':'›'),
+        pad:collapsed?(mobile?'12px 16px':'16px 12px'):'18px 16px 16px',
+        count:String(g.notes.length).padStart(2,'0'),empty:g.notes.length===0,
+        opacity:dim?0:1,pe:dim?'none':'auto',cursor:isF?'default':'pointer',bg:isF?'rgba(255,255,255,.05)':'rgba(255,255,255,.028)',
+        toggle:e=>{e.stopPropagation();const rails={...s.rails,[g.key]:!collapsed};if(focus)this.setState({rails});else this.overview({rails});try{localStorage.setItem(LS+'rails',JSON.stringify(rails))}catch(err){}},
+        notes:g.notes.map(n=>{
+          const icons=[];const add=(list,id)=>{const d=list.find(x=>x.id===id);if(d)icons.push({name:d.icon,title:d.label})};
+          if(other==='project'||view==='priority')add(PROJS,n.project);
+          if(other==='category'||view==='priority')add(CATS,n.category);
+          if(view!=='priority'&&n.priority)add(PRIOS,'P'+n.priority);
+          const cat=catOf(n.category);const hue=cat?cat.hue:null;const isN=noteF&&focus.noteId===n.id;const cm=(n.comments||[]).length;
+          return{id:n.id,text:n.text,bg:hue!=null?`oklch(${n.done?'78%':'85%'} 0.12 ${hue})`:(n.done?'#cfc7dd':'#ece6f5'),
+            iconEls:icons.map((ic,i)=>img(ico(ic.name,'120a1f'),14,{opacity:.75},ic.title)),
+            commentEl:cm?[img(ico('comment-01','120a1f'),13,{opacity:.75}),el('span',{key:'c'},cm)]:null,
+            anim:flash===n.id?'bv-flash 1.2s ease-out':'none',opacity:noteF&&!isN?.18:(n.done?.6:1),deco:n.done?'line-through':'none',
+            checkBorder:n.done?'#120a1f':'rgba(18,10,31,.4)',checkBg:n.done?'#120a1f':'transparent',checkMark:n.done?'✓':'',toggleTitle:n.done?'Reopen':'Mark done',
+            toggle:e=>{e.stopPropagation();this.toggleDone(n.id)},
+            open:e=>{e.stopPropagation();if(this.moved||isN)return;this.focusNote(n.id,g.key,e.currentTarget.getBoundingClientRect())}};
+        })};
+      c.focus=e=>{if(this.moved||e.target.closest('[data-nopan]'))return;if(collapsed){c.toggle(e);return}if(isF&&focus.type==='cluster')return;this.focusCluster(g.key)};
+      return c;
+    });
+  }
+  sky(){
+    const {pan,vw,vh}=this.state;const motion=this.props.ambientMotion??'subtle';const drifters=this.props.showDrifters??true;
+    const speed=motion==='lively'?.35:1;const twinkle=motion!=='off';
+    const stars=el('div',{key:'stars',style:{position:'absolute',inset:'-20%',transform:`translate(${pan.x*.12}px,${pan.y*.12}px)`,pointerEvents:'none'}},
+      this.stars.map((s,i)=>el('div',{key:i,style:{position:'absolute',left:s.x+'%',top:s.y+'%',width:s.s,height:s.s,borderRadius:'50%',background:'#fff',opacity:s.o,boxShadow:s.s>2?'0 0 6px 1px rgba(255,255,255,.6)':'none',animation:twinkle?`bv-tw ${s.d}s ease-in-out ${s.dl}s infinite`:'none'}})));
+    const planet=el('div',{key:'planet',style:{position:'absolute',left:'-120px',bottom:'-160px',width:380,height:380,borderRadius:'50%',background:'radial-gradient(circle at 35% 30%, oklch(48% 0.14 300) 0%, oklch(30% 0.1 290) 45%, #0d0716 100%)',boxShadow:'0 0 80px rgba(150,110,255,.15), inset -40px -30px 80px rgba(0,0,0,.6)',transform:`translate(${pan.x*.05}px,${pan.y*.05}px)`,opacity:.9,pointerEvents:'none'}},
+      el('div',{style:{position:'absolute',left:'50%',top:'50%',width:560,height:120,marginLeft:-280,marginTop:-60,borderRadius:'50%',border:'2px solid rgba(255,255,255,.14)',transform:'rotate(-18deg)',boxShadow:'0 0 20px rgba(201,184,255,.15)'}}));
+    if(!drifters)return[stars,planet];
+    const light='#d9d2ea',mid='#8f86a6';
+    const shapes={
+      rocket:el('div',{style:{position:'relative',width:44,height:18}},
+        el('div',{style:{position:'absolute',left:10,top:3,width:30,height:12,background:light,borderRadius:'6px 12px 12px 6px'}}),
+        el('div',{style:{position:'absolute',left:27,top:6.5,width:5,height:5,borderRadius:'50%',background:'#5b3fc7'}}),
+        el('div',{style:{position:'absolute',left:8,top:4,width:0,height:0,borderRight:'10px solid #b9a7ff',borderTop:'6px solid transparent',borderBottom:'6px solid transparent'}}),
+        el('div',{style:{position:'absolute',left:-2,top:6,width:12,height:6,borderRadius:'50%',background:'linear-gradient(90deg, transparent, #ffb36b)',opacity:.85}})),
+      satellite:el('div',{style:{position:'relative',width:56,height:16}},
+        el('div',{style:{position:'absolute',left:0,top:4,width:20,height:8,background:'oklch(70% 0.12 240)',borderRadius:2}}),
+        el('div',{style:{position:'absolute',left:21,top:1,width:14,height:14,background:light,borderRadius:3}}),
+        el('div',{style:{position:'absolute',left:36,top:4,width:20,height:8,background:'oklch(70% 0.12 240)',borderRadius:2}})),
+      astronaut:el('div',{style:{position:'relative',width:20,height:36}},
+        el('div',{style:{position:'absolute',left:1,top:0,width:18,height:18,borderRadius:'50%',background:light}}),
+        el('div',{style:{position:'absolute',left:5,top:5,width:10,height:8,borderRadius:'50%',background:'#2a1a4d'}}),
+        el('div',{style:{position:'absolute',left:3,top:18,width:14,height:16,borderRadius:5,background:mid}})),
+      cat:el('div',{style:{position:'relative',width:22,height:22}},
+        el('div',{style:{position:'absolute',left:2,top:6,width:18,height:16,borderRadius:'50% 50% 45% 45%',background:mid}}),
+        el('div',{style:{position:'absolute',left:2,top:-1,width:0,height:0,borderBottom:'9px solid '+mid,borderRight:'7px solid transparent'}}),
+        el('div',{style:{position:'absolute',left:13,top:-1,width:0,height:0,borderBottom:'9px solid '+mid,borderLeft:'7px solid transparent'}}),
+        el('div',{style:{position:'absolute',left:7,top:12,width:3,height:3,borderRadius:'50%',background:'#c9f5b8'}}),
+        el('div',{style:{position:'absolute',left:13,top:12,width:3,height:3,borderRadius:'50%',background:'#c9f5b8'}})),
+      comet:el('div',{style:{position:'relative',width:110,height:6}},
+        el('div',{style:{position:'absolute',left:0,top:2,width:100,height:2,background:'linear-gradient(90deg, transparent, rgba(255,255,255,.7))'}}),
+        el('div',{style:{position:'absolute',left:100,top:0,width:6,height:6,borderRadius:'50%',background:'#fff',boxShadow:'0 0 10px 3px rgba(255,255,255,.6)'}}))
+    };
+    return[stars,planet,...this.drift.map(d=>{
+      const comet=d.kind==='comet';
+      const anim=comet?(d.dir>0?'bv-diagR':'bv-diagL'):(d.dir>0?'bv-driftR':'bv-driftL');
+      const inner=comet?{transform:`rotate(${Math.atan2(.55*vh,d.dir*1.4*vw)*180/Math.PI}deg)`}:{animation:`bv-spin ${d.spinDur*speed}s linear infinite ${d.spinDir}`};
+      return el('div',{key:d.kind,style:{position:'absolute',left:0,top:comet?'0%':d.top+'%',pointerEvents:'none',opacity:.55,animation:`${anim} ${d.dur*speed}s linear ${d.delay}s infinite`}},el('div',{style:inner},shapes[d.kind]));
+    })];
+  }
+  renderVals(){
+    const s=this.state;const {mobile}=this.lp(s);const d=s.draft;const f=s.focus;
+    const views=VIEWS.map(v=>{const on=s.view===v.id;return{...v,bg:on?'rgba(255,255,255,.14)':'transparent',fg:on?'#f3eefc':'rgba(236,230,245,.55)',border:on?'rgba(255,255,255,.3)':'transparent',pick:()=>{this.overview({view:v.id});this.save(s.notes,v.id)}}});
+    const setD=dim=>val=>this.setState({draft:{...d,[dim]:val}});
+    const routed=this.routeDraft(d);const rt=routed.auto?(routed.category?catOf(routed.category):PROJS.find(p=>p.id===routed.project)):null;
+    const routeHint=!d.text.trim()?'Tags optional, it finds its own cluster':rt?'Looks like '+rt.label+', will route there':(d.category||d.project||d.priority)?'Ready to drop':'No match yet, lands in Unsorted';
+    const en=f&&f.type==='note'?s.notes.find(n=>n.id===f.noteId):null;const cms=en?(en.comments||[]):[];const ci=clamp(s.cIdx,0,Math.max(0,cms.length-1));const cat=en?catOf(en.category):null;const hue=cat?cat.hue:null;
+    const setN=dim=>val=>en&&this.updateNote(en.id,{[dim]:val});
+    const addComment=()=>{const t=s.commentDraft.trim();if(!t||!en)return;const comments=[...cms,{text:t,at:stamp()}];this.updateNote(en.id,{comments});this.setState({commentDraft:'',cIdx:comments.length-1})};
+    return{
+      rootRef:this.rootRef,sky:this.sky(),pan:s.pan,zoom:s.zoom,worldTransition:s.glide?'transform .85s cubic-bezier(.2,.8,.2,1)':'none',clusters:this.buildClusters(),views,adding:s.adding,draft:d,
+      focused:!!f,back:()=>this.back(),backLabel:f&&f.type==='note'?'← Area':'← Overview',
+      openCount:s.notes.filter(n=>!n.done).length,doneCount:s.notes.filter(n=>n.done).length,metaDisplay:mobile||f?'none':'block',
+      barPad:mobile?'14px 14px':'22px 28px',titleSize:mobile?13:16,
+      fabPos:mobile?'left:50%;bottom:26px;margin-left:-30px':'right:32px;bottom:32px',fabDisplay:en&&mobile?'none':'grid',toastOn:!!s.toast,toast:s.toast,toastBottom:mobile?104:112,
+      modalAlign:mobile?'flex-end':'center',modalPad:mobile?'0 10px 10px':'24px',
+      catOptions:this.chips(CATS,'category',d.category,setD('category')),projOptions:this.chips(PROJS,'project',d.project,setD('project')),prioOptions:this.chips(PRIOS,'priority',d.priority,setD('priority')),routeHint,submitOpacity:d.text.trim()?1:.45,
+      noteOpen:!!en,panelPos:mobile?'left:10px;right:10px;bottom:10px;max-height:58vh':s.vw>=900?'right:24px;top:50%;transform:translateY(-50%);width:380px;max-height:calc(100vh - 48px)':'left:50%;bottom:16px;transform:translateX(-50%);width:min(480px, calc(100vw - 32px));max-height:52vh',
+      panelBg:hue!=null?`linear-gradient(180deg, oklch(80% 0.13 ${hue} / 0.14), rgba(255,255,255,.07))`:'rgba(255,255,255,.09)',panelBorder:tint(hue,.35),
+      editText:en?en.text:'',editTextChange:e=>en&&this.updateNote(en.id,{text:e.target.value}),
+      editCat:this.chips(CATS,'category',en?en.category:null,setN('category')),editProj:this.chips(PROJS,'project',en?en.project:null,setN('project')),editPrio:this.chips(PRIOS,'priority',en?en.priority:null,setN('priority')),
+      commentCount:cms.length,hasComments:cms.length>0,comment:cms[ci]||{text:'',at:''},commentPos:(ci+1)+' / '+cms.length,
+      trashEl:img(ico('delete-02','f3eefc'),14),deleteComment:()=>{if(!en||!cms.length)return;const comments=cms.filter((_,i)=>i!==ci);this.updateNote(en.id,{comments});this.setState({cIdx:Math.max(0,ci-1)})},
+      prevComment:()=>this.setState({cIdx:(ci-1+cms.length)%cms.length}),nextComment:()=>this.setState({cIdx:(ci+1)%cms.length}),
+      commentDraft:s.commentDraft,commentChange:e=>this.setState({commentDraft:e.target.value}),commentKey:e=>{if(e.key==='Enter'){e.preventDefault();addComment()}},
+      deleteNote:()=>{if(!en)return;const notes=s.notes.filter(n=>n.id!==en.id);this.setState({notes});this.save(notes);this.focusCluster(f.key);this.toast('Note deleted')},
+      toggleEditDone:()=>en&&this.toggleDone(en.id),editDoneLabel:en&&en.done?'Reopen':'Mark done',
+      canvasClick:e=>{if(this.moved||!f||s.adding||e.target.closest('[data-nopan]')||e.target.closest('[data-cluster]'))return;this.back()},
+      openAdd:e=>{e.stopPropagation();this.setState({adding:true})},closeAdd:()=>this.setState({adding:false}),stop:e=>e.stopPropagation(),
+      setText:e=>this.setState({draft:{...d,text:e.target.value}}),
+      keyDown:e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();this.submit()}},submit:()=>this.submit(),
+      panStart:e=>{if(e.target.closest('[data-nopan]'))return;this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});this.moved=false;
+        if(this.pointers.size===2){for(const id of this.pointers.keys())try{e.currentTarget.setPointerCapture(id)}catch(err){}const [a,b]=[...this.pointers.values()];this.pinch={d0:Math.hypot(a.x-b.x,a.y-b.y),mid0:{x:(a.x+b.x)/2,y:(a.y+b.y)/2},z0:s.zoom,p0:s.pan};this.drag=null}
+        else{this.drag={sx:e.clientX,sy:e.clientY,px:s.pan.x,py:s.pan.y};e.currentTarget.style.cursor='grabbing'}},
+      panMove:e=>{if(!this.pointers.has(e.pointerId))return;this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(this.pinch&&this.pointers.size===2){const [a,b]=[...this.pointers.values()];const dist=Math.hypot(a.x-b.x,a.y-b.y);const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};this.moved=true;
+          if(Date.now()<(this.cool||0))return;const nz=clamp(this.pinch.z0*dist/this.pinch.d0,.3,3.4);if(this.state.focus&&nz<this.state.focusZoom*.8){this.pinch=null;this.back();return}
+          const k=nz/this.pinch.z0;this.setState({zoom:nz,glide:false,pan:{x:mid.x-(this.pinch.mid0.x-this.pinch.p0.x)*k,y:mid.y-(this.pinch.mid0.y-this.pinch.p0.y)*k}});return}
+        if(!this.drag)return;const dx=e.clientX-this.drag.sx,dy=e.clientY-this.drag.sy;if(!this.moved&&Math.abs(dx)+Math.abs(dy)>4){this.moved=true;e.currentTarget.setPointerCapture(e.pointerId)}if(this.moved)this.setState({glide:false,pan:{x:this.drag.px+dx,y:this.drag.py+dy}})},
+      panEnd:e=>{this.pointers.delete(e.pointerId);if(this.pointers.size<2)this.pinch=null;if(this.pointers.size===0)this.drag=null;e.currentTarget.style.cursor='grab';setTimeout(()=>{this.moved=false},0)}
+    };
+  }
+}
+</script>
+</body>
+</html>
