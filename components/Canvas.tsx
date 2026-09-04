@@ -51,6 +51,8 @@ export default class Canvas extends React.Component<Props, S> {
   drag: { sx: number; sy: number; px: number; py: number } | null = null;
   /** Mobile flick candidate: start point/time of a single pointer (tracked even when it starts on a tile). */
   flick: { id: number; x: number; y: number; t: number } | null = null;
+  /** Set when a mobile pinch already triggered a focus change, so the release does not refit. */
+  pinchActed = false;
   moved = false;
   cool = 0;
   tt: ReturnType<typeof setTimeout> | undefined;
@@ -97,7 +99,7 @@ export default class Canvas extends React.Component<Props, S> {
     this.setState({ notes, view, rails, vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns), ready: true, drifters: makeDrifters() });
     this.unsub = this.sync.onStatus((sync) => this.setState({ sync }));
     if (document.fonts?.ready) document.fonts.ready.then(() => this.measure());
-    if (ns.vw < 640) { try { if (!localStorage.getItem(LS + 'hint')) { localStorage.setItem(LS + 'hint', '1'); this.toast('Swipe ← → to move · ↓ back · ↑ dive in', 5000); } } catch { /* private mode */ } }
+    if (ns.vw < 640) { try { if (!localStorage.getItem(LS + 'hint')) { localStorage.setItem(LS + 'hint', '1'); this.toast('Swipe ← → to move · pinch to zoom in or out', 5000); } } catch { /* private mode */ } }
 
     this.onR = () => { const ns = { ...this.state, vw: window.innerWidth, vh: window.innerHeight }; if (this.state.focus) this.setState({ vw: ns.vw, vh: ns.vh }); else this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns) }); };
     window.addEventListener('resize', this.onR);
@@ -228,8 +230,30 @@ export default class Canvas extends React.Component<Props, S> {
     if (Math.abs(dx) >= Math.abs(dy)) {
       if (f) { this.step(dx < 0 ? 1 : -1); return; }
       const i = VIEWS.findIndex((v) => v.id === this.state.view); this.setView(VIEWS[(i + (dx < 0 ? 1 : -1) + VIEWS.length) % VIEWS.length].id);
-    } else if (dy < 0) { if (!f || f.type === 'cluster') this.dive(); }
-    else if (f) this.back();
+    }
+    // Vertical flicks are intentionally unmapped: pinch out dives in, pinch in steps back (see panMove).
+  }
+  /** Mobile pinch-out: focus whatever sits under the pinch midpoint (area in overview, note inside an area). */
+  diveAt(mid: { x: number; y: number }) {
+    const f = this.state.focus;
+    if (!f) {
+      const s = this.state; const wx = (mid.x - s.pan.x) / s.zoom, wy = (mid.y - s.pan.y) / s.zoom;
+      const cands = this.placed().filter((p) => !p.collapsed);
+      const hit = cands.find((p) => wx >= p.x && wx <= p.x + p.w && wy >= p.y && wy <= p.y + p.h)
+        ?? cands.sort((a, b) => Math.hypot(a.x + a.w / 2 - wx, a.y + a.h / 2 - wy) - Math.hypot(b.x + b.w / 2 - wx, b.y + b.h / 2 - wy))[0];
+      if (hit) this.focusCluster(hit.g.key);
+      return;
+    }
+    if (f.type !== 'cluster') return;
+    const tiles = [...(this.rootRef.current?.querySelectorAll<HTMLElement>(`[data-key="${f.key}"] [data-note-id]`) ?? [])];
+    const dist = (r: DOMRect) => Math.hypot(Math.max(r.left - mid.x, 0, mid.x - r.right), Math.max(r.top - mid.y, 0, mid.y - r.bottom));
+    const best = tiles.map((el) => ({ el, d: dist(el.getBoundingClientRect()) })).sort((a, b) => a.d - b.d)[0];
+    if (best) this.goNote(best.el.dataset.noteId!, f.key); else this.dive();
+  }
+  /** Glide back to the fitted framing of the current level (after an undecided pinch on mobile). */
+  refit() {
+    const f = this.state.focus;
+    if (!f) this.overview(); else if (f.type === 'cluster') this.focusCluster(f.key); else this.goNote(f.noteId, f.key);
   }
 
   // ---------- notes ----------
@@ -438,7 +462,9 @@ export default class Canvas extends React.Component<Props, S> {
   panStart = (e: React.PointerEvent<HTMLDivElement>) => {
     // Flick candidate (mobile only): recorded before the nopan check so a swipe may start on a tile or cluster, but never inside UI chrome.
     if (this.lp(this.state).mobile) this.flick = this.flick || this.pointers.size || this.state.adding || (e.target as HTMLElement).closest('[data-ui]') ? null : { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
-    if ((e.target as HTMLElement).closest('[data-nopan]')) return;
+    // Desktop: tiles/chrome never pan. Mobile: only UI chrome is excluded, so a pinch may start on tiles or clusters.
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-ui]') || (!this.lp(this.state).mobile && t.closest('[data-nopan]'))) return;
     const s = this.state; this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); this.moved = false;
     if (this.pointers.size === 2) {
       for (const id of this.pointers.keys()) { try { e.currentTarget.setPointerCapture(id); } catch { /* ignore */ } }
@@ -451,7 +477,12 @@ export default class Canvas extends React.Component<Props, S> {
     if (this.pinch && this.pointers.size === 2) {
       const [a, b] = [...this.pointers.values()]; const dist = Math.hypot(a.x - b.x, a.y - b.y); const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; this.moved = true;
       if (Date.now() < this.cool) return; const nz = clamp((this.pinch.z0 * dist) / this.pinch.d0, 0.3, 3.4);
-      if (this.state.focus && nz < this.state.focusZoom * 0.8) { this.pinch = null; this.back(); return; }
+      if (this.lp(this.state).mobile) {
+        // Mobile: the pinch *is* the focus control. Spread → dive into what is under the fingers, squeeze → step back out.
+        const ratio = dist / this.pinch.d0;
+        if (ratio >= 1.35 && (!this.state.focus || this.state.focus.type === 'cluster')) { this.pinch = null; this.pinchActed = true; this.diveAt(mid); return; }
+        if (ratio <= 0.7 && this.state.focus) { this.pinch = null; this.pinchActed = true; this.back(); return; }
+      } else if (this.state.focus && nz < this.state.focusZoom * 0.8) { this.pinch = null; this.back(); return; }
       const k = nz / this.pinch.z0; this.setState({ zoom: nz, glide: false, pan: { x: mid.x - (this.pinch.mid0.x - this.pinch.p0.x) * k, y: mid.y - (this.pinch.mid0.y - this.pinch.p0.y) * k } }); return;
     }
     if (!this.drag) return; const dx = e.clientX - this.drag.sx, dy = e.clientY - this.drag.sy;
@@ -459,7 +490,13 @@ export default class Canvas extends React.Component<Props, S> {
     if (this.moved) this.setState({ glide: false, pan: { x: this.drag.px + dx, y: this.drag.py + dy } });
   };
   panEnd = (e: React.PointerEvent<HTMLDivElement>) => {
-    this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; if (this.pointers.size === 0) this.drag = null;
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) {
+      // Mobile pinch that ended without crossing a threshold: settle back onto the current level's framing.
+      if (this.pinch && this.lp(this.state).mobile && !this.pinchActed) this.refit();
+      this.pinch = null; this.pinchActed = false;
+    }
+    if (this.pointers.size === 0) this.drag = null;
     const fl = this.flick; if (fl && fl.id === e.pointerId) {
       this.flick = null; const dx = e.clientX - fl.x, dy = e.clientY - fl.y, ax = Math.abs(dx), ay = Math.abs(dy);
       if (e.type === 'pointerup' && !this.state.adding && this.pointers.size === 0 && Date.now() - fl.t <= 350 && Math.hypot(dx, dy) >= 50 && Math.max(ax, ay) >= 1.5 * Math.min(ax, ay)) { this.moved = true; this.onFlick(dx, dy); }

@@ -47,4 +47,4 @@ Every note tile has a small calendar button, and the note panel has a "Plan on G
 
 ## Touch
 
-On phones (viewport under 640px) the keyboard moves become flicks: swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes, swipe `↑` to dive in, swipe `↓` to step back out. Slow drags still pan and two fingers still pinch; tapping `+` while an area is focused drops the new note into that area.
+On phones (viewport under 640px): pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes. A pinch that stops halfway settles back onto the current level. One finger drags to pan; tapping `+` while an area is focused drops the new note into that area.
