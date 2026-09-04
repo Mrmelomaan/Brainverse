@@ -49,6 +49,8 @@ export default class Canvas extends React.Component<Props, S> {
   pointers = new Map<number, { x: number; y: number }>();
   pinch: { d0: number; mid0: { x: number; y: number }; z0: number; p0: { x: number; y: number } } | null = null;
   drag: { sx: number; sy: number; px: number; py: number } | null = null;
+  /** Mobile flick candidate: start point/time of a single pointer (tracked even when it starts on a tile). */
+  flick: { id: number; x: number; y: number; t: number } | null = null;
   moved = false;
   cool = 0;
   tt: ReturnType<typeof setTimeout> | undefined;
@@ -95,6 +97,7 @@ export default class Canvas extends React.Component<Props, S> {
     this.setState({ notes, view, rails, vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns), ready: true, drifters: makeDrifters() });
     this.unsub = this.sync.onStatus((sync) => this.setState({ sync }));
     if (document.fonts?.ready) document.fonts.ready.then(() => this.measure());
+    if (ns.vw < 640) { try { if (!localStorage.getItem(LS + 'hint')) { localStorage.setItem(LS + 'hint', '1'); this.toast('Swipe ← → to move · ↓ back · ↑ dive in', 5000); } } catch { /* private mode */ } }
 
     this.onR = () => { const ns = { ...this.state, vw: window.innerWidth, vh: window.innerHeight }; if (this.state.focus) this.setState({ vw: ns.vw, vh: ns.vh }); else this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns) }); };
     window.addEventListener('resize', this.onR);
@@ -219,6 +222,15 @@ export default class Canvas extends React.Component<Props, S> {
     if (f.type === 'cluster') { const { un, groups, done } = this.groups(); const g = [...groups, un, done].find((g) => g.key === f.key); if (g && g.notes.length) this.goNote(g.notes[0].id, g.key); }
   }
   back() { const f = this.state.focus; this.pinch = null; if (f && f.type === 'note') this.focusCluster(f.key); else this.overview(); }
+  /** Mobile flick → the same moves as the arrow keys / Tab. dx<0 is a flick to the left, dy<0 a flick up. */
+  onFlick(dx: number, dy: number) {
+    const f = this.state.focus;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (f) { this.step(dx < 0 ? 1 : -1); return; }
+      const i = VIEWS.findIndex((v) => v.id === this.state.view); this.setView(VIEWS[(i + (dx < 0 ? 1 : -1) + VIEWS.length) % VIEWS.length].id);
+    } else if (dy < 0) { if (!f || f.type === 'cluster') this.dive(); }
+    else if (f) this.back();
+  }
 
   // ---------- notes ----------
   updateNote(id: string, patch: Partial<Note>) {
@@ -226,7 +238,7 @@ export default class Canvas extends React.Component<Props, S> {
     const n = notes.find((x) => x.id === id); if (n) this.sync.upsert(n);
   }
   toggleDone(id: string) { const n = this.state.notes.find((n) => n.id === id); if (!n) return; this.updateNote(id, { done: !n.done }); this.setState({ flash: id }); this.toast(!n.done ? 'Moved to Done' : 'Back on the canvas'); }
-  toast(text: string) { clearTimeout(this.tt); this.setState({ toast: text }); this.tt = setTimeout(() => this.setState({ toast: null }), 2200); }
+  toast(text: string, ms = 2200) { clearTimeout(this.tt); this.setState({ toast: text }); this.tt = setTimeout(() => this.setState({ toast: null }), ms); }
   submit() {
     const d = this.state.draft; const text = d.text.trim(); if (!text) return; const r = routeDraft({ ...d, text });
     const note: Note = { id: uid(), text, category: r.category, project: r.project, priority: r.priority, done: false, comments: [], createdAt: new Date().toISOString() };
@@ -337,7 +349,7 @@ export default class Canvas extends React.Component<Props, S> {
     const planStart = () => { const d = new Date(`${s.plan.date}T${s.plan.time || '09:00'}:00`); return isNaN(d.getTime()) ? undefined : d; };
     const inputStyle: React.CSSProperties = { padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 13, outline: 'none', minWidth: 0 };
     return (
-      <div data-nopan="1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+      <div data-nopan="1" data-ui="1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
         style={{ position: 'absolute', ...pos, overflow: 'auto', borderRadius: 24, padding: '20px 20px 16px', background: hue != null ? `linear-gradient(180deg, oklch(80% 0.13 ${hue} / 0.14), rgba(255,255,255,.07))` : 'rgba(255,255,255,.09)', border: `1px solid ${tint(hue, 0.35)}`, backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', animation: `${s.vw >= 900 && !mobile ? 'bv-pop' : 'bv-pop'} .25s ease-out`, display: 'flex', flexDirection: 'column', gap: 14, cursor: 'default' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>Note</div>
@@ -399,7 +411,7 @@ export default class Canvas extends React.Component<Props, S> {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{this.label(lbl, { width: 64 })}{chips}</div>
     );
     return (
-      <div data-nopan="1" onClick={() => this.setState({ adding: false })} onPointerDown={(e) => e.stopPropagation()}
+      <div data-nopan="1" data-ui="1" onClick={() => this.setState({ adding: false })} onPointerDown={(e) => e.stopPropagation()}
         style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-end' : 'center', justifyContent: 'center', padding: mobile ? '0 10px 10px' : 24, cursor: 'default' }}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -424,6 +436,8 @@ export default class Canvas extends React.Component<Props, S> {
 
   // ---------- pointer handling (pan + pinch) ----------
   panStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Flick candidate (mobile only): recorded before the nopan check so a swipe may start on a tile or cluster, but never inside UI chrome.
+    if (this.lp(this.state).mobile) this.flick = this.flick || this.pointers.size || this.state.adding || (e.target as HTMLElement).closest('[data-ui]') ? null : { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
     if ((e.target as HTMLElement).closest('[data-nopan]')) return;
     const s = this.state; this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); this.moved = false;
     if (this.pointers.size === 2) {
@@ -446,6 +460,10 @@ export default class Canvas extends React.Component<Props, S> {
   };
   panEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; if (this.pointers.size === 0) this.drag = null;
+    const fl = this.flick; if (fl && fl.id === e.pointerId) {
+      this.flick = null; const dx = e.clientX - fl.x, dy = e.clientY - fl.y, ax = Math.abs(dx), ay = Math.abs(dy);
+      if (e.type === 'pointerup' && !this.state.adding && this.pointers.size === 0 && Date.now() - fl.t <= 350 && Math.hypot(dx, dy) >= 50 && Math.max(ax, ay) >= 1.5 * Math.min(ax, ay)) { this.moved = true; this.onFlick(dx, dy); }
+    }
     e.currentTarget.style.cursor = 'grab'; setTimeout(() => { this.moved = false; }, 0);
   };
 
@@ -464,7 +482,7 @@ export default class Canvas extends React.Component<Props, S> {
           {s.ready && this.placed().map((p) => this.renderCluster(p))}
         </div>
 
-        <div data-nopan="1" style={{ position: 'absolute', left: 0, right: 0, top: 0, padding: mobile ? '14px 14px' : '22px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(18,10,31,.92) 0%, rgba(18,10,31,.6) 65%, rgba(18,10,31,0) 100%)' }}>
+        <div data-nopan="1" data-ui="1" style={{ position: 'absolute', left: 0, right: 0, top: 0, padding: mobile ? '14px 14px' : '22px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(18,10,31,.92) 0%, rgba(18,10,31,.6) 65%, rgba(18,10,31,0) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, pointerEvents: 'auto', minWidth: 0 }}>
             <div style={{ fontFamily: OX, fontWeight: 700, fontSize: mobile ? 12 : 16, letterSpacing: mobile ? '.18em' : '.28em', color: '#f3eefc', textShadow: '0 0 18px rgba(201,184,255,.55)', whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>BRAINVERSE</div>
             {f && <button type="button" className="bv-pill" onClick={() => this.back()} style={{ fontFamily: OX, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', padding: '8px 12px', borderRadius: 999, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'rgba(236,230,245,.75)', cursor: 'pointer', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', whiteSpace: 'nowrap' }}>{f.type === 'note' ? '← Area' : '← Overview'}</button>}
@@ -484,7 +502,7 @@ export default class Canvas extends React.Component<Props, S> {
 
         {s.toast && <div style={{ position: 'absolute', left: '50%', bottom: mobile ? 104 : 112, transform: 'translateX(-50%)', padding: '10px 16px', borderRadius: 999, background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.18)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', fontFamily: OX, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#f3eefc', animation: 'bv-pop .3s ease-out', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{s.toast}</div>}
 
-        <button type="button" data-nopan="1" className="bv-fab" onClick={(e) => { e.stopPropagation(); this.setState({ adding: true }); }} title="Add a thought (N)"
+        <button type="button" data-nopan="1" data-ui="1" className="bv-fab" onClick={(e) => { e.stopPropagation(); if (mobile && f) this.quickAddHere(); else this.setState({ adding: true }); }} title="Add a thought (N)"
           style={{ position: 'absolute', ...(mobile ? { left: '50%', bottom: 26, marginLeft: -30 } : { right: 32, bottom: 32 }), display: en && mobile ? 'none' : 'grid', width: 60, height: 60, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 30, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 34px rgba(169,140,255,.55), 0 10px 30px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>+</button>
 
         {en && this.renderPanel(en)}

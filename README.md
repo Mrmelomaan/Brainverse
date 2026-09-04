@@ -44,3 +44,7 @@ Every note tile has a small calendar button, and the note panel has a "Plan on G
 ## Keyboard
 
 `N` new note · `Shift+Enter` new note inside the current area · `Tab`/`Shift+Tab` cycle views · `↑` dive in · `↓` step out · `←`/`→` siblings · `Esc` back/close.
+
+## Touch
+
+On phones (viewport under 640px) the keyboard moves become flicks: swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes, swipe `↑` to dive in, swipe `↓` to step back out. Slow drags still pan and two fingers still pinch; tapping `+` while an area is focused drops the new note into that area.
