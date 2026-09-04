@@ -2,7 +2,7 @@
 // Each key keeps only its latest payload; failures stay queued and retry with backoff.
 import type { Note, Prefs } from './model';
 
-export type SyncStatus = 'local' | 'synced' | 'saving' | 'offline';
+export type SyncStatus = 'synced' | 'saving' | 'offline';
 type Job = { url: string; method: 'PUT' | 'DELETE'; body?: unknown };
 
 export class Sync {
@@ -11,12 +11,9 @@ export class Sync {
   private running = false;
   private failures = 0;
   private listeners = new Set<(s: SyncStatus) => void>();
-  private status: SyncStatus;
-  enabled: boolean;
+  private status: SyncStatus = 'synced';
 
-  constructor(enabled: boolean) {
-    this.enabled = enabled;
-    this.status = enabled ? 'synced' : 'local';
+  constructor() {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => this.flush(0));
       window.addEventListener('beforeunload', () => { if (this.jobs.size) this.flushBeacon(); });
@@ -26,12 +23,10 @@ export class Sync {
   private set(s: SyncStatus) { if (s !== this.status) { this.status = s; this.listeners.forEach((l) => l(s)); } }
 
   upsert(note: Note) { this.jobs.delete('del:' + note.id); this.put('note:' + note.id, { url: '/api/notes', method: 'PUT', body: note }); }
-  upsertMany(list: Note[]) { if (list.length) this.put('bulk:' + Date.now(), { url: '/api/notes', method: 'PUT', body: list }); }
   remove(id: string) { this.jobs.delete('note:' + id); this.put('del:' + id, { url: '/api/notes/' + encodeURIComponent(id), method: 'DELETE' }); }
   prefs(p: Prefs) { this.put('prefs', { url: '/api/prefs', method: 'PUT', body: p }); }
 
   private put(key: string, job: Job) {
-    if (!this.enabled) return;
     this.jobs.set(key, job);
     this.set('saving');
     this.flush(350);
@@ -41,7 +36,7 @@ export class Sync {
     this.timer = setTimeout(() => this.run(), delay);
   }
   private async run() {
-    if (this.running || !this.enabled) return;
+    if (this.running) return;
     this.running = true;
     try {
       while (this.jobs.size) {

@@ -8,22 +8,31 @@ import { Sky, makeDrifters, type Drifter } from './Sky';
 import { Sync, type SyncStatus } from '@/lib/sync';
 import { gcalUrl } from '@/lib/calendar';
 import {
-  CATS, PROJS, PRIOS, VIEWS, SEED, catOf, clamp, emptyDraft, normaliseNote, routeDraft, stamp, uid,
-  type Category, type Dim, type Draft, type Focus, type Note, type Prefs, type Priority, type Project, type Rails, type View,
+  CATS, PRIOS, VIEWS, MAX_PROJECTS, MAX_PROJECT_LABEL, PROJECT_ICONS, catOf, clamp, emptyDraft, projOf, routeDraft, stamp, uid,
+  type Category, type Dim, type Draft, type Focus, type Note, type Prefs, type Priority, type Rails, type UserProject, type View,
 } from '@/lib/model';
 import type { IconName } from '@/lib/icons';
 
-type Props = { initial: { notes: Note[]; prefs: Prefs; synced: boolean }; origin?: string };
+type Account = { id: string; email: string; name: string | null };
+type Props = { initial: { notes: Note[]; prefs: Prefs; account: Account }; origin?: string };
 type Plan = { date: string; time: string; minutes: number };
+type ProjEdit = { id?: string; label: string; icon: IconName };
 type S = {
-  view: View; notes: Note[]; rails: Rails; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
+  view: View; notes: Note[]; rails: Rails; projects: UserProject[]; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
   cIdx: number; commentDraft: string; adding: boolean; draft: Draft; vw: number; vh: number; toast: string | null; flash: string | null;
-  ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan;
+  ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan; menu: boolean; projEdit: ProjEdit | null; busy: boolean;
 };
-type Group = { key: string; label: string; icon: IconName; rail?: boolean; notes: Note[] };
+/** `ghost` marks the "new project" prompt: it is laid out like a cluster but can never hold notes or focus. */
+type Group = { key: string; label: string; icon: IconName; rail?: boolean; ghost?: boolean; notes: Note[] };
 type Placed = { g: Group; x: number; y: number; w: number; h: number; collapsed: boolean };
 
-const LS = 'brainverse.';
+/** Browser storage is only used for tiny per-account conveniences (the mobile hint). Notes never live here:
+ *  the server is the single source of truth, so two accounts on one browser can never see each other. */
+const LS_PREFIX = 'brainverse.';
+const NEW_KEY = '_new';
+function clearLocal() {
+  try { Object.keys(localStorage).filter((k) => k.startsWith(LS_PREFIX)).forEach((k) => localStorage.removeItem(k)); } catch { /* private mode */ }
+}
 const OX = 'var(--font-oxygen), Oxygen, sans-serif';
 const tint = (hue: number | null, a: number) => (hue == null ? `rgba(255,255,255,${a * 0.7})` : `oklch(80% 0.13 ${hue} / ${a})`);
 const defaultPlan = (): Plan => {
@@ -31,19 +40,6 @@ const defaultPlan = (): Plan => {
   const pad = (n: number) => String(n).padStart(2, '0');
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:00`, minutes: 60 };
 };
-
-function readLocal(): { notes: Note[] | null; view: View | null; rails: Rails | null } {
-  try {
-    const n = JSON.parse(localStorage.getItem(LS + 'notes') || 'null');
-    const v = localStorage.getItem(LS + 'view') as View | null;
-    const r = JSON.parse(localStorage.getItem(LS + 'rails') || 'null');
-    return {
-      notes: Array.isArray(n) ? n.filter((x) => x && typeof x.id === 'string').map((x, i) => normaliseNote(x, i)) : null,
-      view: v && VIEWS.some((x) => x.id === v) ? v : null,
-      rails: r && typeof r === 'object' ? { _un: !!r._un, _done: !!r._done } : null,
-    };
-  } catch { return { notes: null, view: null, rails: null }; }
-}
 
 export default class Canvas extends React.Component<Props, S> {
   pointers = new Map<number, { x: number; y: number }>();
@@ -66,40 +62,31 @@ export default class Canvas extends React.Component<Props, S> {
   onK!: (e: KeyboardEvent) => void;
   onW!: (e: WheelEvent) => void;
 
+  /** Per-account localStorage prefix. */
+  ls: string;
+
   constructor(props: Props) {
     super(props);
-    this.sync = new Sync(props.initial.synced);
+    this.sync = new Sync();
+    this.ls = LS_PREFIX + props.initial.account.id + '.';
     const vw = 1280, vh = 800;
     const st: S = {
-      view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
-      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: props.initial.synced ? 'synced' : 'local', plan: defaultPlan(),
+      view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, projects: props.initial.prefs.projects, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
+      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, busy: false,
     };
     st.zoom = this.fitZoom(st); st.pan = this.centerPan(st);
     this.state = st;
   }
 
   componentDidMount() {
-    // Reconcile server state with the browser cache (server wins when it has anything).
-    const local = readLocal();
-    let { notes, view, rails } = this.state;
-    if (this.props.initial.synced) {
-      if (!notes.length) {
-        notes = local.notes?.length ? local.notes : SEED;
-        if (local.view) view = local.view;
-        if (local.rails) rails = local.rails;
-        this.sync.upsertMany(notes);
-        this.sync.prefs({ view, rails });
-      }
-    } else {
-      notes = local.notes?.length ? local.notes : SEED;
-      view = local.view ?? view; rails = local.rails ?? rails;
-    }
-    this.cache(notes, view, rails);
-    const ns = { ...this.state, notes, view, rails, vw: window.innerWidth, vh: window.innerHeight };
-    this.setState({ notes, view, rails, vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns), ready: true, drifters: makeDrifters() });
+    // Older builds cached the whole universe under un-namespaced keys; sweep those so nothing from a
+    // previous account lingers in this browser.
+    try { ['notes', 'view', 'rails', 'hint'].forEach((k) => localStorage.removeItem(LS_PREFIX + k)); } catch { /* private mode */ }
+    const ns = { ...this.state, vw: window.innerWidth, vh: window.innerHeight };
+    this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns), ready: true, drifters: makeDrifters() });
     this.unsub = this.sync.onStatus((sync) => this.setState({ sync }));
     if (document.fonts?.ready) document.fonts.ready.then(() => this.measure());
-    if (ns.vw < 640) { try { if (!localStorage.getItem(LS + 'hint')) { localStorage.setItem(LS + 'hint', '1'); this.toast('Swipe ← → to move · pinch to zoom in or out', 5000); } } catch { /* private mode */ } }
+    if (ns.vw < 640) { try { if (!localStorage.getItem(this.ls + 'hint')) { localStorage.setItem(this.ls + 'hint', '1'); this.toast('Swipe ← → to move · pinch to zoom in or out', 5000); } } catch { /* private mode */ } }
 
     this.onR = () => { const ns = { ...this.state, vw: window.innerWidth, vh: window.innerHeight }; if (this.state.focus) this.setState({ vw: ns.vw, vh: ns.vh }); else this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns) }); };
     window.addEventListener('resize', this.onR);
@@ -107,6 +94,8 @@ export default class Canvas extends React.Component<Props, S> {
       const t = e.target as HTMLElement;
       const typing = /TEXTAREA|INPUT|SELECT/.test(t?.tagName || '');
       const f = this.state.focus;
+      if (this.state.projEdit) { if (e.key === 'Escape') this.setState({ projEdit: null }); return; }
+      if (this.state.menu) { if (e.key === 'Escape') this.setState({ menu: false }); return; }
       if (e.key === 'Enter' && e.shiftKey && !this.state.adding) { e.preventDefault(); this.quickAddHere(); return; }
       if (e.key === 'Tab' && !this.state.adding && !typing) { e.preventDefault(); const i = VIEWS.findIndex((v) => v.id === this.state.view); const next = VIEWS[(i + (e.shiftKey ? -1 : 1) + VIEWS.length) % VIEWS.length].id; this.setView(next); return; }
       if (!typing && !this.state.adding) {
@@ -138,11 +127,53 @@ export default class Canvas extends React.Component<Props, S> {
   }
 
   // ---------- persistence ----------
-  cache(notes: Note[], view?: View, rails?: Rails) {
-    try { localStorage.setItem(LS + 'notes', JSON.stringify(notes)); if (view) localStorage.setItem(LS + 'view', view); if (rails) localStorage.setItem(LS + 'rails', JSON.stringify(rails)); } catch { /* quota */ }
+  pushPrefs(patch: Partial<Prefs>) { const { view, rails, projects } = this.state; this.sync.prefs({ view, rails, projects, ...patch }); }
+  setView(view: View) { this.overview({ view }); this.pushPrefs({ view }); }
+  setRails(rails: Rails) { this.pushPrefs({ rails }); }
+  setProjects(projects: UserProject[]) { this.setState({ projects }); this.pushPrefs({ projects }); }
+
+  // ---------- projects ----------
+  openProjectEditor(id?: string) {
+    const p = id ? projOf(this.state.projects, id) : undefined;
+    if (id && !p) return;
+    if (!id && this.state.projects.length >= MAX_PROJECTS) { this.toast('That is the maximum number of projects'); return; }
+    this.setState({ projEdit: p ? { id: p.id, label: p.label, icon: p.icon } : { label: '', icon: PROJECT_ICONS[0] }, menu: false });
   }
-  setView(view: View) { this.overview({ view }); this.cache(this.state.notes, view); this.sync.prefs({ view, rails: this.state.rails }); }
-  setRails(rails: Rails) { this.cache(this.state.notes, undefined, rails); this.sync.prefs({ view: this.state.view, rails }); }
+  saveProject() {
+    const e = this.state.projEdit; if (!e) return;
+    const label = e.label.trim().slice(0, MAX_PROJECT_LABEL); if (!label) return;
+    const existing = e.id ? projOf(this.state.projects, e.id) : undefined;
+    const projects = existing ? this.state.projects.map((p) => (p.id === e.id ? { ...p, label, icon: e.icon } : p)) : [...this.state.projects, { id: uid(), label, icon: e.icon }];
+    this.setProjects(projects);
+    this.setState({ projEdit: null });
+    this.toast(existing ? 'Project updated' : 'Project created');
+  }
+  deleteProject(id: string) {
+    const p = projOf(this.state.projects, id); if (!p) return;
+    const projects = this.state.projects.filter((x) => x.id !== id);
+    const stranded = this.state.notes.filter((n) => n.project === id && !n.done).length;
+    this.setProjects(projects);
+    this.setState({ projEdit: null });
+    if (this.state.focus?.key === id) this.overview();
+    this.toast(stranded ? `Project removed, ${stranded} note${stranded === 1 ? '' : 's'} moved to Unsorted` : 'Project removed');
+  }
+
+  // ---------- account ----------
+  async signOutNow() { clearLocal(); await signOut({ callbackUrl: '/login' }); }
+  async deleteAccountNow() {
+    if (this.state.busy) return;
+    if (!window.confirm('Delete your account and every note in it? This cannot be undone. Export first if you want a copy.')) return;
+    this.setState({ busy: true, menu: false });
+    try {
+      const res = await fetch('/api/account', { method: 'DELETE', credentials: 'same-origin' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      clearLocal();
+      await signOut({ callbackUrl: '/login' });
+    } catch {
+      this.setState({ busy: false });
+      this.toast('Could not delete right now, try again');
+    }
+  }
 
   // ---------- layout ----------
   lp(s: Pick<S, 'vw' | 'rails'>) {
@@ -156,10 +187,12 @@ export default class Canvas extends React.Component<Props, S> {
   overview(extra?: Partial<S>) { const s = { ...this.state, ...(extra || {}) }; this.cool = Date.now() + 700; this.setState({ ...(extra || {}), focus: null, zoom: this.fitZoom(s), pan: this.centerPan(s), glide: true } as S); }
   estH(n: number, W: number) { const perRow = W < 200 ? 1 : 2; const rows = Math.ceil(n / perRow); return 74 + (n ? rows * 94 + (rows - 1) * 10 : 44); }
   groups() {
-    const { view, notes } = this.state;
-    const dims: Dim[] = view === 'category' ? CATS : view === 'project' ? PROJS : PRIOS;
+    const { view, notes, projects } = this.state;
+    const dims: Dim[] = view === 'category' ? CATS : view === 'project' ? projects : PRIOS;
     const keyOf = (n: Note) => (view === 'category' ? n.category : view === 'project' ? n.project : n.priority ? 'P' + n.priority : null);
     const groups: Group[] = dims.map((d) => ({ key: d.id, label: d.label, icon: d.icon, notes: [] }));
+    // The Projects view always ends with a prompt: "create your first project" when there are none, "new project" after that.
+    if (view === 'project') groups.push({ key: NEW_KEY, label: projects.length ? 'New project' : 'Create your first project', icon: 'add-01', ghost: true, notes: [] });
     const un: Group = { key: '_un', label: 'Unsorted', icon: 'inbox', rail: true, notes: [] }, done: Group = { key: '_done', label: 'Done', icon: 'checkmark-circle-02', rail: true, notes: [] };
     notes.forEach((n) => { if (n.done) return done.notes.push(n); (groups.find((g) => g.key === keyOf(n)) || un).notes.push(n); });
     if (view !== 'priority') { const byPrio = (a: Note, b: Note) => (a.priority || 9) - (b.priority || 9); [...groups, un].forEach((g) => g.notes.sort(byPrio)); }
@@ -203,7 +236,7 @@ export default class Canvas extends React.Component<Props, S> {
   goNote(id: string, key: string) { const elm = document.querySelector(`[data-note-id="${id}"]`); if (elm) this.focusNote(id, key, elm.getBoundingClientRect()); }
   step(dir: number) {
     const f = this.state.focus; if (!f) return; const wrap = (i: number, n: number) => ((i % n) + n) % n;
-    if (f.type === 'cluster') { const keys = this.placed().filter((p) => !p.collapsed).map((p) => p.g.key); if (keys.length < 2) return; this.focusCluster(keys[wrap(keys.indexOf(f.key) + dir, keys.length)]); return; }
+    if (f.type === 'cluster') { const keys = this.placed().filter((p) => !p.collapsed && !p.g.ghost).map((p) => p.g.key); if (keys.length < 2) return; this.focusCluster(keys[wrap(keys.indexOf(f.key) + dir, keys.length)]); return; }
     const { un, groups, done } = this.groups(); const g = [...groups, un, done].find((g) => g.key === f.key); if (!g || g.notes.length < 2) return;
     this.goNote(g.notes[wrap(g.notes.findIndex((n) => n.id === f.noteId) + dir, g.notes.length)].id, g.key);
   }
@@ -212,7 +245,7 @@ export default class Canvas extends React.Component<Props, S> {
     if (f) {
       const k = f.key;
       if (view === 'category' && catOf(k)) draft.category = k as Category;
-      else if (view === 'project' && PROJS.find((p) => p.id === k)) draft.project = k as Project;
+      else if (view === 'project' && projOf(this.state.projects, k)) draft.project = k;
       else if (view === 'priority' && /^P[123]$/.test(k)) draft.priority = +k[1] as Priority;
       if (f.type === 'note') { this.focusCluster(k); setTimeout(() => this.setState({ adding: true, draft }), 450); return; }
     }
@@ -220,7 +253,7 @@ export default class Canvas extends React.Component<Props, S> {
   }
   dive() {
     const f = this.state.focus;
-    if (!f) { const first = this.placed().find((p) => !p.collapsed && !p.g.rail) || this.placed().find((p) => !p.collapsed); if (first) this.focusCluster(first.g.key); return; }
+    if (!f) { const real = this.placed().filter((p) => !p.collapsed && !p.g.ghost); const first = real.find((p) => !p.g.rail) || real[0]; if (first) this.focusCluster(first.g.key); return; }
     if (f.type === 'cluster') { const { un, groups, done } = this.groups(); const g = [...groups, un, done].find((g) => g.key === f.key); if (g && g.notes.length) this.goNote(g.notes[0].id, g.key); }
   }
   back() { const f = this.state.focus; this.pinch = null; if (f && f.type === 'note') this.focusCluster(f.key); else this.overview(); }
@@ -238,7 +271,7 @@ export default class Canvas extends React.Component<Props, S> {
     const f = this.state.focus;
     if (!f) {
       const s = this.state; const wx = (mid.x - s.pan.x) / s.zoom, wy = (mid.y - s.pan.y) / s.zoom;
-      const cands = this.placed().filter((p) => !p.collapsed);
+      const cands = this.placed().filter((p) => !p.collapsed && !p.g.ghost);
       const hit = cands.find((p) => wx >= p.x && wx <= p.x + p.w && wy >= p.y && wy <= p.y + p.h)
         ?? cands.sort((a, b) => Math.hypot(a.x + a.w / 2 - wx, a.y + a.h / 2 - wy) - Math.hypot(b.x + b.w / 2 - wx, b.y + b.h / 2 - wy))[0];
       if (hit) this.focusCluster(hit.g.key);
@@ -258,17 +291,17 @@ export default class Canvas extends React.Component<Props, S> {
 
   // ---------- notes ----------
   updateNote(id: string, patch: Partial<Note>) {
-    const notes = this.state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)); this.setState({ notes }); this.cache(notes);
+    const notes = this.state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)); this.setState({ notes });
     const n = notes.find((x) => x.id === id); if (n) this.sync.upsert(n);
   }
   toggleDone(id: string) { const n = this.state.notes.find((n) => n.id === id); if (!n) return; this.updateNote(id, { done: !n.done }); this.setState({ flash: id }); this.toast(!n.done ? 'Moved to Done' : 'Back on the canvas'); }
   toast(text: string, ms = 2200) { clearTimeout(this.tt); this.setState({ toast: text }); this.tt = setTimeout(() => this.setState({ toast: null }), ms); }
   submit() {
-    const d = this.state.draft; const text = d.text.trim(); if (!text) return; const r = routeDraft({ ...d, text });
+    const d = this.state.draft; const text = d.text.trim(); if (!text) return; const r = routeDraft({ ...d, text }, this.state.projects);
     const note: Note = { id: uid(), text, category: r.category, project: r.project, priority: r.priority, done: false, comments: [], createdAt: new Date().toISOString() };
     const notes = [...this.state.notes, note];
-    const target = this.state.view === 'category' ? catOf(r.category) : this.state.view === 'project' ? PROJS.find((p) => p.id === r.project) : r.priority ? PRIOS[r.priority - 1] : null;
-    this.setState({ notes, adding: false, draft: emptyDraft(), flash: note.id }); this.cache(notes); this.sync.upsert(note);
+    const target = this.state.view === 'category' ? catOf(r.category) : this.state.view === 'project' ? projOf(this.state.projects, r.project) : r.priority ? PRIOS[r.priority - 1] : null;
+    this.setState({ notes, adding: false, draft: emptyDraft(), flash: note.id }); this.sync.upsert(note);
     this.toast(target ? (r.auto ? 'Auto-routed to ' : 'Dropped in ') + target.label : 'Dropped in Unsorted');
   }
   openCalendar(n: Note, start?: Date, minutes?: number) {
@@ -288,6 +321,17 @@ export default class Canvas extends React.Component<Props, S> {
       );
     });
   }
+  /** Project chips plus a trailing "+" that opens the project editor, so a project can be made mid-thought. */
+  projectChips(current: string | null, set: (v: string | number | null) => void, big?: boolean) {
+    const { projects } = this.state;
+    const plus = (
+      <button key="_add" type="button" className="bv-chip" title="New project" onClick={(e) => { e.stopPropagation(); this.openProjectEditor(); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: big ? 12.5 : 12, padding: big ? '6px 11px 6px 9px' : '0 10px 0 8px', height: big ? undefined : 30, minHeight: 30, borderRadius: 999, border: '1px dashed rgba(255,255,255,.22)', background: 'transparent', color: 'rgba(207,199,221,.8)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <Icon name="add-01" size={13} color="currentColor" />{projects.length ? 'New' : 'First project'}
+      </button>
+    );
+    return [...this.chips(projects, 'project', current, set, big), plus];
+  }
   roundBtn(props: { onClick: (e: React.MouseEvent) => void; title: string; size?: number; children: React.ReactNode; fontSize?: number }) {
     return (
       <button type="button" data-nopan="1" className="bv-round" onClick={props.onClick} title={props.title}
@@ -305,6 +349,20 @@ export default class Canvas extends React.Component<Props, S> {
     const glyph = collapsed ? (mobile ? '▾' : g.key === '_un' ? '›' : '‹') : mobile ? '▴' : g.key === '_un' ? '‹' : '›';
     const toggle = (e: React.MouseEvent) => { e.stopPropagation(); const rails = { ...s.rails, [g.key]: !collapsed } as Rails; if (focus) this.setState({ rails }); else this.overview({ rails }); this.setRails(rails); };
     const onClick = (e: React.MouseEvent) => { if (this.moved || (e.target as HTMLElement).closest('[data-nopan]')) return; if (collapsed) { toggle(e); return; } if (isF && focus!.type === 'cluster') return; this.focusCluster(g.key); };
+    if (g.ghost) {
+      const first = !s.projects.length;
+      return (
+        <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed="0" data-nopan="1" className="bv-cluster" onClick={(e) => { e.stopPropagation(); if (!this.moved) this.openProjectEditor(); }}
+          style={{ position: 'absolute', left: 0, top: 0, width: w, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: 'pointer', padding: first ? '30px 20px 28px' : '18px 16px 16px', borderRadius: 22, border: '1px dashed rgba(255,255,255,.18)', background: 'rgba(255,255,255,.015)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
+          <Icon name="add-01" size={first ? 30 : 24} color="#c9b8ff" style={{ opacity: 0.9 }} />
+          <div style={{ fontFamily: OX, fontWeight: 700, fontSize: first ? 17 : 14, letterSpacing: '.02em', color: '#f3eefc' }}>{g.label}</div>
+          {first && <div style={{ fontSize: 13, lineHeight: 1.45, color: 'rgba(236,230,245,.5)', maxWidth: 260 }}>Projects are yours to name: a trip, a side thing, a client, a house move. Notes that mention the name find their way here on their own.</div>}
+          <button type="button" className="bv-primary" onClick={(e) => { e.stopPropagation(); this.openProjectEditor(); }}
+            style={{ marginTop: first ? 6 : 0, fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.3)' }}>{first ? 'Create a project' : 'Add'}</button>
+        </div>
+      );
+    }
+    const editable = view === 'project' && !g.rail;
     return (
       <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed={collapsed ? '1' : '0'} className="bv-cluster" onClick={onClick}
         style={{ position: 'absolute', left: 0, top: 0, width: w, minHeight: collapsed ? h : 0, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s, width .5s, background .4s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: isF ? 'default' : 'pointer', padding: collapsed ? (mobile ? '12px 16px' : '16px 12px') : '18px 16px 16px', borderRadius: 22, border: '1px solid rgba(255,255,255,.08)', background: isF ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.028)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
@@ -324,6 +382,7 @@ export default class Canvas extends React.Component<Props, S> {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.1em', color: 'rgba(236,230,245,.4)' }}>{String(g.notes.length).padStart(2, '0')}</div>
+                {editable && this.roundBtn({ onClick: (e) => { e.stopPropagation(); this.openProjectEditor(g.key); }, title: 'Edit project', children: <Icon name="edit-02" size={12} color="currentColor" /> })}
                 {g.rail && this.roundBtn({ onClick: toggle, title: 'Collapse', children: glyph })}
               </div>
             </div>
@@ -332,7 +391,7 @@ export default class Canvas extends React.Component<Props, S> {
               {g.notes.map((n) => {
                 const icons: { name: IconName; title: string }[] = [];
                 const add = (list: Dim[], id: string | null) => { const d = list.find((x) => x.id === id); if (d) icons.push({ name: d.icon, title: d.label }); };
-                if (other === 'project' || view === 'priority') add(PROJS, n.project);
+                if (other === 'project' || view === 'priority') add(s.projects, n.project);
                 if (other === 'category' || view === 'priority') add(CATS, n.category);
                 if (view !== 'priority' && n.priority) add(PRIOS, 'P' + n.priority);
                 const cat = catOf(n.category); const hue = cat ? cat.hue : null; const isN = noteF && focus!.type === 'note' && focus!.noteId === n.id; const cm = n.comments.length;
@@ -382,7 +441,7 @@ export default class Canvas extends React.Component<Props, S> {
         <textarea className="bv-ta" value={en.text} onChange={(e) => this.updateNote(en.id, { text: e.target.value })} rows={3} style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: 0, caretColor: '#c9b8ff' }} />
         <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start', paddingTop: 4 }}>
           {this.label('Life', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(CATS, 'category', en.category, setN('category'))}</div>
-          {this.label('Project', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(PROJS, 'project', en.project, setN('project'))}</div>
+          {this.label('Project', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.projectChips(en.project, setN('project'))}</div>
           {this.label('Priority', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(PRIOS, 'priority', en.priority, setN('priority'))}</div>
         </div>
         {/* Plan: opens Google Calendar with the note prefilled; saving happens over there. */}
@@ -418,7 +477,7 @@ export default class Canvas extends React.Component<Props, S> {
             style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 13.5, outline: 'none' }} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 2 }}>
-          <button type="button" className="bv-danger" onClick={() => { const notes = s.notes.filter((n) => n.id !== en.id); this.setState({ notes }); this.cache(notes); this.sync.remove(en.id); this.focusCluster(f.key); this.toast('Note deleted'); }}
+          <button type="button" className="bv-danger" onClick={() => { const notes = s.notes.filter((n) => n.id !== en.id); this.setState({ notes }); this.sync.remove(en.id); this.focusCluster(f.key); this.toast('Note deleted'); }}
             style={pillBtn('', { border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.05)', color: 'rgba(236,230,245,.75)' })}>Delete note</button>
           <button type="button" className="bv-white" onClick={() => this.toggleDone(en.id)} style={pillBtn('', { border: '1px solid rgba(255,255,255,.9)', background: 'rgba(255,255,255,.92)', color: '#120a1f', fontWeight: 700 })}>{en.done ? 'Reopen' : 'Mark done'}</button>
         </div>
@@ -429,7 +488,7 @@ export default class Canvas extends React.Component<Props, S> {
   renderAdd() {
     const s = this.state; const d = s.draft; const { mobile } = this.lp(s);
     const setD = (dim: 'category' | 'project' | 'priority') => (val: string | number | null) => this.setState({ draft: { ...this.state.draft, [dim]: val } });
-    const routed = routeDraft(d); const rt = routed.auto ? (routed.category ? catOf(routed.category) : PROJS.find((p) => p.id === routed.project)) : null;
+    const routed = routeDraft(d, s.projects); const rt = routed.auto ? (routed.category ? catOf(routed.category) : projOf(s.projects, routed.project)) : null;
     const routeHint = !d.text.trim() ? 'Tags optional, it finds its own cluster' : rt ? 'Looks like ' + rt.label + ', will route there' : d.category || d.project || d.priority ? 'Ready to drop' : 'No match yet, lands in Unsorted';
     const row = (lbl: string, chips: React.ReactNode) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{this.label(lbl, { width: 64 })}{chips}</div>
@@ -446,12 +505,74 @@ export default class Canvas extends React.Component<Props, S> {
             style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 20, lineHeight: 1.35, padding: '2px 0', caretColor: '#c9b8ff' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {row('Life', this.chips(CATS, 'category', d.category, setD('category'), true))}
-            {row('Project', this.chips(PROJS, 'project', d.project, setD('project'), true))}
+            {row('Project', this.projectChips(d.project, setD('project'), true))}
             {row('Priority', this.chips(PRIOS, 'priority', d.priority, setD('priority'), true))}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 4 }}>
             <div style={{ fontSize: 12, color: 'rgba(236,230,245,.45)' }}>{routeHint}</div>
             <button type="button" className="bv-primary" onClick={() => this.submit()} style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '12px 20px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.4)', opacity: d.text.trim() ? 1 : 0.45 }}>Drop it</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  renderMenu() {
+    const s = this.state; const a = this.props.initial.account;
+    const item = (label: string, onClick: () => void, opts?: { icon?: IconName; danger?: boolean; href?: string }) => {
+      const st: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 12px', borderRadius: 12, border: 'none', background: 'transparent', color: opts?.danger ? '#ff9a9a' : 'rgba(236,230,245,.85)', fontSize: 13.5, textAlign: 'left', cursor: 'pointer', textDecoration: 'none', fontFamily: 'inherit' };
+      const inner = <>{opts?.icon && <Icon name={opts.icon} size={15} color="currentColor" style={{ opacity: 0.8 }} />}{label}</>;
+      return opts?.href
+        ? <a key={label} className="bv-ghost" href={opts.href} onClick={onClick} style={{ ...st, opacity: 1 }}>{inner}</a>
+        : <button key={label} type="button" className="bv-ghost" onClick={onClick} style={{ ...st, opacity: 1 }}>{inner}</button>;
+    };
+    return (
+      <div data-nopan="1" data-ui="1" onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', right: 0, top: 42, width: 260, padding: 8, borderRadius: 18, background: 'rgba(28,17,48,.92)', border: '1px solid rgba(255,255,255,.14)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', animation: 'bv-pop .2s ease-out', display: 'flex', flexDirection: 'column', gap: 2, cursor: 'default' }}>
+        <div style={{ padding: '8px 12px 10px', borderBottom: '1px solid rgba(255,255,255,.1)', marginBottom: 4 }}>
+          {a.name && <div style={{ fontSize: 13.5, color: '#f3eefc', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>}
+          <div style={{ fontSize: 12, color: 'rgba(236,230,245,.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
+          <div style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.4, color: 'rgba(201,184,255,.75)' }}>Beta. Export your notes now and then; a copy on your own disk beats trusting one database.</div>
+        </div>
+        {item('Export my notes', () => this.setState({ menu: false }), { icon: 'download-04', href: '/api/export' })}
+        {item('Privacy', () => this.setState({ menu: false }), { icon: 'shield-01', href: '/privacy' })}
+        {item('Sign out', () => this.signOutNow(), { icon: 'logout-03' })}
+        <div style={{ height: 1, background: 'rgba(255,255,255,.1)', margin: '4px 6px' }} />
+        {item(s.busy ? 'Deleting…' : 'Delete my account', () => this.deleteAccountNow(), { icon: 'delete-02', danger: true })}
+      </div>
+    );
+  }
+
+  renderProjectEditor(e: ProjEdit) {
+    const { mobile } = this.lp(this.state); const editing = !!e.id; const ok = !!e.label.trim();
+    const pill = (extra: React.CSSProperties): React.CSSProperties => ({ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, cursor: 'pointer', ...extra });
+    return (
+      <div data-nopan="1" data-ui="1" onClick={() => this.setState({ projEdit: null })} onPointerDown={(ev) => ev.stopPropagation()}
+        style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-end' : 'center', justifyContent: 'center', padding: mobile ? '0 10px 10px' : 24, cursor: 'default' }}>
+        <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); this.saveProject(); } }} style={{ width: '100%', maxWidth: 440, borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>{editing ? 'Edit project' : 'New project'}</div>
+            <div style={{ fontSize: 11, color: 'rgba(236,230,245,.4)' }}>Enter to save · Esc to close</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 14, display: 'grid', placeItems: 'center', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.14)', flex: 'none' }}><Icon name={e.icon} size={22} /></div>
+            <input className="bv-input" autoFocus value={e.label} maxLength={MAX_PROJECT_LABEL} placeholder="Name it: Japan trip, the book, kitchen…"
+              onChange={(ev) => this.setState({ projEdit: { ...e, label: ev.target.value } })}
+              style={{ flex: 1, minWidth: 0, padding: '11px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 16, outline: 'none' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
+            {PROJECT_ICONS.map((ic) => { const on = ic === e.icon; return (
+              <button key={ic} type="button" className="bv-chip" onMouseDown={(ev) => ev.preventDefault()} onClick={() => this.setState({ projEdit: { ...e, icon: ic } })} title={ic}
+                style={{ aspectRatio: '1', borderRadius: 12, border: `1px solid ${on ? 'transparent' : 'rgba(255,255,255,.12)'}`, background: on ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.05)', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0, transition: 'all .15s' }}>
+                <Icon name={ic} size={18} color={on ? '#120a1f' : '#cfc7dd'} />
+              </button>
+            ); })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 2 }}>
+            {editing
+              ? <button type="button" className="bv-danger" onClick={() => this.deleteProject(e.id!)} style={pill({ border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.05)', color: 'rgba(236,230,245,.75)' })}>Remove</button>
+              : <div style={{ fontSize: 12, color: 'rgba(236,230,245,.45)' }}>Notes that mention the name route here</div>}
+            <button type="button" className="bv-primary" onClick={() => this.saveProject()} style={{ ...pill({ border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, boxShadow: '0 0 24px rgba(169,140,255,.4)' }), opacity: ok ? 1 : 0.45 }}>{editing ? 'Save' : 'Create'}</button>
           </div>
         </div>
       </div>
@@ -508,11 +629,11 @@ export default class Canvas extends React.Component<Props, S> {
     const s = this.state; const { mobile } = this.lp(s); const f = s.focus;
     const en = f && f.type === 'note' ? s.notes.find((n) => n.id === f.noteId) : null;
     const open = s.notes.filter((n) => !n.done).length, done = s.notes.length - open;
-    const syncLabel = s.sync === 'local' ? 'LOCAL ONLY' : s.sync === 'offline' ? 'NOT SAVED' : s.sync === 'saving' ? 'SAVING' : null;
-    const syncTitle = s.sync === 'local' ? 'No database configured: notes live in this browser only' : s.sync === 'offline' ? 'Could not reach the server, retrying' : s.sync === 'saving' ? 'Saving…' : 'All changes saved';
+    const syncLabel = s.sync === 'offline' ? 'NOT SAVED' : s.sync === 'saving' ? 'SAVING' : null;
+    const syncTitle = s.sync === 'offline' ? 'Could not reach the server, retrying' : s.sync === 'saving' ? 'Saving…' : 'All changes saved';
     return (
       <div ref={this.rootRef} style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at 30% 20%, #1c1130 0%, #120a1f 55%, #0b0616 100%)', overflow: 'hidden', touchAction: 'none', userSelect: 'none', cursor: 'grab' }}
-        onClick={(e) => { if (this.moved || !f || s.adding || (e.target as HTMLElement).closest('[data-nopan]') || (e.target as HTMLElement).closest('[data-cluster]')) return; this.back(); }}
+        onClick={(e) => { if (s.menu && !(e.target as HTMLElement).closest('[data-menu]')) this.setState({ menu: false }); if (this.moved || !f || s.adding || (e.target as HTMLElement).closest('[data-nopan]') || (e.target as HTMLElement).closest('[data-cluster]')) return; this.back(); }}
         onPointerDown={this.panStart} onPointerMove={this.panMove} onPointerUp={this.panEnd} onPointerCancel={this.panEnd}>
         <Sky panX={s.pan.x} panY={s.pan.y} vw={s.vw} vh={s.vh} drifters={s.drifters} />
         <div ref={this.worldRef} style={{ position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', transform: `translate(${s.pan.x}px, ${s.pan.y}px) scale(${s.zoom})`, transition: s.glide ? 'transform .85s cubic-bezier(.2,.8,.2,1)' : 'none', willChange: 'transform', opacity: s.ready ? 1 : 0 }}>
@@ -533,7 +654,10 @@ export default class Canvas extends React.Component<Props, S> {
                 <button key={v.id} type="button" className="bv-tab" onClick={() => this.setView(v.id)} style={{ fontFamily: OX, fontSize: mobile ? 8.5 : 10, letterSpacing: mobile ? '.1em' : '.16em', textTransform: 'uppercase', padding: mobile ? '8px 8px' : '9px 14px', borderRadius: 999, border: `1px solid ${on ? 'rgba(255,255,255,.3)' : 'transparent'}`, background: on ? 'rgba(255,255,255,.14)' : 'transparent', color: on ? '#f3eefc' : 'rgba(236,230,245,.55)', cursor: 'pointer', transition: 'all .25s', minHeight: 34 }}>{v.label}</button>
               ); })}
             </div>
-            {!mobile && this.roundBtn({ onClick: () => signOut({ callbackUrl: '/login' }), title: 'Sign out', size: 34, children: <Icon name="logout-03" size={15} color="currentColor" /> })}
+            <div data-menu="1" style={{ position: 'relative' }}>
+              {this.roundBtn({ onClick: (e) => { e.stopPropagation(); this.setState({ menu: !s.menu }); }, title: 'Account', size: 34, children: <Icon name="user-circle" size={17} color="currentColor" /> })}
+              {s.menu && this.renderMenu()}
+            </div>
           </div>
         </div>
 
@@ -544,6 +668,7 @@ export default class Canvas extends React.Component<Props, S> {
 
         {en && this.renderPanel(en)}
         {s.adding && this.renderAdd()}
+        {s.projEdit && this.renderProjectEditor(s.projEdit)}
       </div>
     );
   }

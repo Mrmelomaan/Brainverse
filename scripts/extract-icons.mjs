@@ -4,7 +4,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const json = JSON.parse(readFileSync(require.resolve('@iconify-json/hugeicons/icons.json'), 'utf8'));
-const NAMES = ['dumbbell-01','restaurant-02','repeat','briefcase-01','smart-phone-01','camera-01','target-01','user-group','flash','clock-01','moon','inbox','checkmark-circle-02','comment-01','delete-02','calendar-add-01','google','logout-03','cloud-off','arrow-up-right-01'];
+const NAMES = [
+  // categories, priorities, rails
+  'dumbbell-01','restaurant-02','repeat','briefcase-01','flash','clock-01','moon','inbox','checkmark-circle-02',
+  // project icon palette (lib/model.ts PROJECT_ICONS)
+  'rocket-01','folder-01','home-01','laptop','camera-01','paint-board','book-open-01','airplane-01','favourite','star','money-bag-01','plant-01','music-note-01','shopping-cart-01','user-group','target-01',
+  // chrome
+  'comment-01','delete-02','calendar-add-01','google','logout-03','cloud-off','arrow-up-right-01','add-01','more-horizontal','download-04','edit-02','user-circle','shield-01',
+];
 const out = {};
 for (const n of NAMES) {
   const ic = json.icons[n] ?? (json.aliases?.[n] ? json.icons[json.aliases[n].parent] : null);

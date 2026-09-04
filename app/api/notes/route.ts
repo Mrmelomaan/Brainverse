@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import { ownerId } from '@/auth';
-import { hasDatabase, loadUniverse, upsertNotes } from '@/db';
-import { parseNote } from '@/lib/validate';
+import { loadUniverse, upsertNotes } from '@/db';
+import { parseNote, tooLarge } from '@/lib/validate';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const owner = await ownerId();
   if (!owner) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (!hasDatabase()) return NextResponse.json({ synced: false, reason: 'no-database' }, { status: 503 });
   try {
     const u = await loadUniverse(owner);
     return NextResponse.json({ synced: true, ...u });
@@ -22,7 +21,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   const owner = await ownerId();
   if (!owner) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (!hasDatabase()) return NextResponse.json({ error: 'no-database' }, { status: 503 });
+  if (tooLarge(req)) return NextResponse.json({ error: 'too large' }, { status: 413 });
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad json' }, { status: 400 }); }
   const items = (Array.isArray(body) ? body : [body]).slice(0, 500).map(parseNote);

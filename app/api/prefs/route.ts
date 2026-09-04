@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { ownerId } from '@/auth';
-import { hasDatabase, savePrefs } from '@/db';
-import { parsePrefs } from '@/lib/validate';
+import { savePrefs } from '@/db';
+import { parsePrefs, tooLarge } from '@/lib/validate';
 
 export const dynamic = 'force-dynamic';
 
 export async function PUT(req: Request) {
   const owner = await ownerId();
   if (!owner) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (!hasDatabase()) return NextResponse.json({ error: 'no-database' }, { status: 503 });
+  if (tooLarge(req)) return NextResponse.json({ error: 'too large' }, { status: 413 });
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad json' }, { status: 400 }); }
   const p = parsePrefs(body);
