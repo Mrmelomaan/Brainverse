@@ -26,6 +26,19 @@ export class Sync {
   remove(id: string) { this.jobs.delete('note:' + id); this.put('del:' + id, { url: '/api/notes/' + encodeURIComponent(id), method: 'DELETE' }); }
   prefs(p: Prefs) { this.put('prefs', { url: '/api/prefs', method: 'PUT', body: p }); }
 
+  /** Push everything queued right now and resolve once the queue is empty (or after ~3 s if the server will not
+   *  answer). Used before signing out, so a note typed seconds ago is not lost with the session cookie. */
+  drain(): Promise<void> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (!this.jobs.size && !this.running) return Promise.resolve();
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const tick = () => { if ((!this.jobs.size && !this.running) || Date.now() - t0 > 3000) resolve(); else setTimeout(tick, 50); };
+      void this.run();
+      tick();
+    });
+  }
+
   private put(key: string, job: Job) {
     this.jobs.set(key, job);
     this.set('saving');

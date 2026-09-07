@@ -159,7 +159,7 @@ export default class Canvas extends React.Component<Props, S> {
   }
 
   // ---------- account ----------
-  async signOutNow() { clearLocal(); await signOut({ callbackUrl: '/login' }); }
+  async signOutNow() { clearLocal(); await this.sync.drain(); await signOut({ callbackUrl: '/login' }); }
   async deleteAccountNow() {
     if (this.state.busy) return;
     if (!window.confirm('Delete your account and every note in it? This cannot be undone. Export first if you want a copy.')) return;
