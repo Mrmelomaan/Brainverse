@@ -1,5 +1,5 @@
 import { boolean, index, integer, jsonb, pgTable, smallint, text, timestamp } from 'drizzle-orm/pg-core';
-import type { Comment, Rails, UserProject } from '@/lib/model';
+import type { Comment, Rails, UserCategory, UserProject } from '@/lib/model';
 
 /** `owner` on notes/prefs is the Google account's stable `sub` id (users.id), never the email. */
 export const notes = pgTable(
@@ -24,6 +24,7 @@ export const prefs = pgTable('prefs', {
   view: text('view').notNull().default('category'),
   rails: jsonb('rails').$type<Rails>().notNull().default({ _un: false, _done: false }),
   projects: jsonb('projects').$type<UserProject[]>().notNull().default([]),
+  categories: jsonb('categories').$type<UserCategory[]>().notNull().default([]),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -17,7 +17,7 @@ Live: https://brainverse.mooibekeken.nl (Google login; only emails on the invite
 1. Someone signs in with Google. If their email is on the list they are in; if not, they see the waiting room, which shows the address they used and asks them to message Rob. Their attempt is recorded in `access_requests` (one row per Google account, never expires).
 2. Rob adds them from his laptop: `npm run db:allow -- add jan@gmail.com "Jan from padel" --prod`. They reload and walk in. No deploy.
 3. `npm run db:allow -- list --prod` shows who is in and who is waiting.
-4. Every account gets four tutorial notes on its first load. Categories are fixed; projects are per user and created inside the app.
+4. Every account gets four tutorial notes and four starter categories (Sport, Food, Habits, Business) on its first load. Categories and projects are both per user and managed inside the app.
 5. Users can export everything as JSON and delete their own account from the menu. Deleting also removes their invite.
 
 Rows are keyed on the Google `sub` id (`users.id`), never the email, so an email change does not orphan anyone's notes.
@@ -86,10 +86,19 @@ Every note tile has a small calendar button, and the note panel has a "Plan on G
 2. Migrations are **not** part of the deploy. Apply them first from your laptop (see above).
 3. Domain: `brainverse.mooibekeken.nl` is added to the project; DNS needs a CNAME `brainverse` → `cname.vercel-dns.com`.
 
+## Categories and projects
+
+Both are yours to define, up to 24 each, and live in your prefs (`prefs.categories` / `prefs.projects`).
+
+- **Categories** are life areas. Each has a name, an icon and a colour (an oklch hue) that tints its notes and the note panel. The Categories view ends with a "New category" prompt; the account menu has one too. The editor offers a curated list of common areas (Health, Family, Finance, Travel, …), each with an icon, a colour and keyword auto-routing; tap one and adjust, or name your own. Every account starts with Sport, Food, Habits and Business, which can be renamed or removed like any other.
+- **Projects** are clusters for anything with a name: a trip, a client, a house move. Same editor, minus the colour.
+- Auto-routing runs only when a new note has no category or project chosen: a project wins when its name appears in the text, otherwise the first category whose name or (for one picked from the list) keywords match.
+- Removing a category or project keeps the notes; they show up in Unsorted until you tag them again.
+
 ## Keyboard
 
-`N` new note · `Shift+Enter` new note inside the current area · `Tab`/`Shift+Tab` cycle views · `↑` dive in · `↓` step out · `←`/`→` siblings · `Esc` back/close.
+`N` new note · `Shift+Enter` new note inside the current area · `Tab`/`Shift+Tab` cycle views · `↑` dive in · `↓` step out · `←`/`→` siblings · `Esc` back/close (also closes the category/project editor) · `Enter` in an editor saves.
 
 ## Touch
 
-On phones (viewport under 640px): pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes. A pinch that stops halfway settles back onto the current level. One finger drags to pan; tapping `+` while an area is focused drops the new note into that area.
+On phones (viewport under 640px): pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes. A pinch that stops halfway settles back onto the current level. One finger drags to pan; tapping `+` while an area is focused drops the new note into that area. The pencil on a category or project cluster opens its editor; the dashed "New category" / "New project" cluster at the end of each view creates one.

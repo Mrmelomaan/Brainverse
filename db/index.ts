@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import * as schema from './schema';
-import { SEED, defaultPrefs, normaliseNote, type Note, type Prefs, type View } from '@/lib/model';
+import { SEED, STARTER_CATEGORIES, defaultPrefs, normaliseNote, type Note, type Prefs, type View } from '@/lib/model';
 import { parsePrefs } from '@/lib/validate';
 
 // Schema changes live in drizzle/ and are applied by hand from a laptop (`npm run db:migrate`).
@@ -26,7 +26,7 @@ const toNote = (r: typeof schema.notes.$inferSelect): Note =>
 const toPrefs = (p: typeof schema.prefs.$inferSelect | undefined): Prefs => {
   if (!p) return defaultPrefs();
   const view = (['category', 'project', 'priority'] as View[]).includes(p.view as View) ? (p.view as View) : 'category';
-  return parsePrefs({ view, rails: p.rails, projects: p.projects }) ?? defaultPrefs();
+  return parsePrefs({ view, rails: p.rails, projects: p.projects, categories: p.categories }) ?? defaultPrefs();
 };
 
 // ---------- access ----------
@@ -72,10 +72,23 @@ export async function loadUniverse(owner: string): Promise<{ notes: Note[]; pref
   return { notes: rows.map(toNote), prefs: toPrefs(p[0]) };
 }
 
+/** Accounts from before per-user categories have an empty `categories` column while their notes still carry
+ *  the old fixed ids. Give them the four starters once (same ids, so nothing moves). The WHERE makes it
+ *  idempotent, and an account that later empties its categories on purpose is left alone because its notes
+ *  are then re-homed by the user, not by us: only rows whose notes still reference a starter id qualify. */
+async function ensureStarterCategories(owner: string) {
+  const d = db();
+  await d.execute(sql`
+    UPDATE ${schema.prefs} SET categories = ${JSON.stringify(STARTER_CATEGORIES)}::jsonb, updated_at = now()
+    WHERE owner = ${owner} AND categories = '[]'::jsonb
+      AND EXISTS (SELECT 1 FROM ${schema.notes} n WHERE n.owner = ${owner} AND n.category IN ('sport', 'food', 'habits', 'business'))`);
+}
+
 /** First visit of an account (no prefs row yet): plant the tutorial notes once, then load as usual. */
 export async function loadOrSeedUniverse(owner: string): Promise<{ notes: Note[]; prefs: Prefs }> {
   const d = db();
-  const p = await d.select({ owner: schema.prefs.owner }).from(schema.prefs).where(eq(schema.prefs.owner, owner)).limit(1);
+  const p = await d.select({ owner: schema.prefs.owner, categories: schema.prefs.categories }).from(schema.prefs).where(eq(schema.prefs.owner, owner)).limit(1);
+  if (p.length && !p[0].categories.length) await ensureStarterCategories(owner);
   if (!p.length) {
     const t0 = Date.now();
     const seeded: Note[] = SEED.map((n, i) => ({ ...n, id: crypto.randomUUID(), createdAt: new Date(t0 + i * 1000).toISOString() }));
@@ -102,7 +115,8 @@ export async function deleteNote(owner: string, id: string) {
   await db().delete(schema.notes).where(and(eq(schema.notes.owner, owner), eq(schema.notes.id, id)));
 }
 
-export async function savePrefs(owner: string, p: Prefs) {
-  await db().insert(schema.prefs).values({ owner, view: p.view, rails: p.rails, projects: p.projects, updatedAt: new Date() })
-    .onConflictDoUpdate({ target: schema.prefs.owner, set: { view: p.view, rails: p.rails, projects: p.projects, updatedAt: new Date() } });
+/** `categories: false` leaves that column untouched: a tab still running an older build sends prefs without it. */
+export async function savePrefs(owner: string, p: Prefs, cols: { categories?: boolean } = {}) {
+  const set = { view: p.view, rails: p.rails, projects: p.projects, ...(cols.categories === false ? {} : { categories: p.categories }), updatedAt: new Date() };
+  await db().insert(schema.prefs).values({ owner, ...set }).onConflictDoUpdate({ target: schema.prefs.owner, set });
 }

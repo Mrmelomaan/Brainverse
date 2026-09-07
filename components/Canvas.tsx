@@ -8,8 +8,8 @@ import { Sky, makeDrifters, type Drifter } from './Sky';
 import { Sync, type SyncStatus } from '@/lib/sync';
 import { gcalUrl } from '@/lib/calendar';
 import {
-  CATS, PRIOS, VIEWS, MAX_PROJECTS, MAX_PROJECT_LABEL, PROJECT_ICONS, catOf, clamp, emptyDraft, projOf, routeDraft, stamp, uid,
-  type Category, type Dim, type Draft, type Focus, type Note, type Prefs, type Priority, type Rails, type UserProject, type View,
+  CATEGORY_HUES, CATEGORY_ICONS, CATEGORY_SUGGESTIONS, PRIOS, VIEWS, MAX_CATEGORIES, MAX_CATEGORY_LABEL, MAX_PROJECTS, MAX_PROJECT_LABEL, PROJECT_ICONS, catOf, clamp, emptyDraft, projOf, routeDraft, stamp, uid,
+  type Dim, type Draft, type Focus, type Note, type Prefs, type Priority, type Rails, type UserCategory, type UserProject, type View,
 } from '@/lib/model';
 import type { IconName } from '@/lib/icons';
 
@@ -17,13 +17,15 @@ type Account = { id: string; email: string; name: string | null };
 type Props = { initial: { notes: Note[]; prefs: Prefs; account: Account }; origin?: string };
 type Plan = { date: string; time: string; minutes: number };
 type ProjEdit = { id?: string; label: string; icon: IconName };
+/** `suggestionId` remembers which curated area a new category was picked from, so it keeps that id (and routing). */
+type CatEdit = { id?: string; label: string; icon: IconName; hue: number; suggestionId?: string };
 type S = {
-  view: View; notes: Note[]; rails: Rails; projects: UserProject[]; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
+  view: View; notes: Note[]; rails: Rails; projects: UserProject[]; categories: UserCategory[]; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
   cIdx: number; commentDraft: string; adding: boolean; draft: Draft; vw: number; vh: number; toast: string | null; flash: string | null;
-  ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan; menu: boolean; projEdit: ProjEdit | null; busy: boolean;
+  ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan; menu: boolean; projEdit: ProjEdit | null; catEdit: CatEdit | null; busy: boolean;
 };
-/** `ghost` marks the "new project" prompt: it is laid out like a cluster but can never hold notes or focus. */
-type Group = { key: string; label: string; icon: IconName; rail?: boolean; ghost?: boolean; notes: Note[] };
+/** `ghost` marks the "new project/category" prompt: it is laid out like a cluster but can never hold notes or focus. */
+type Group = { key: string; label: string; icon: IconName; hue?: number; rail?: boolean; ghost?: boolean; notes: Note[] };
 type Placed = { g: Group; x: number; y: number; w: number; h: number; collapsed: boolean };
 
 /** Browser storage is only used for tiny per-account conveniences (the mobile hint). Notes never live here:
@@ -54,6 +56,7 @@ export default class Canvas extends React.Component<Props, S> {
   tt: ReturnType<typeof setTimeout> | undefined;
   rootRef = React.createRef<HTMLDivElement>();
   worldRef = React.createRef<HTMLDivElement>();
+  catInput = React.createRef<HTMLInputElement>();
   sync: Sync;
   unsub?: () => void;
   /** Real rendered cluster heights (world units), keyed by cluster key; replaces the estimate once known. */
@@ -71,8 +74,8 @@ export default class Canvas extends React.Component<Props, S> {
     this.ls = LS_PREFIX + props.initial.account.id + '.';
     const vw = 1280, vh = 800;
     const st: S = {
-      view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, projects: props.initial.prefs.projects, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
-      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, busy: false,
+      view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, projects: props.initial.prefs.projects, categories: props.initial.prefs.categories, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
+      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, catEdit: null, busy: false,
     };
     st.zoom = this.fitZoom(st); st.pan = this.centerPan(st);
     this.state = st;
@@ -95,6 +98,7 @@ export default class Canvas extends React.Component<Props, S> {
       const typing = /TEXTAREA|INPUT|SELECT/.test(t?.tagName || '');
       const f = this.state.focus;
       if (this.state.projEdit) { if (e.key === 'Escape') this.setState({ projEdit: null }); return; }
+      if (this.state.catEdit) { if (e.key === 'Escape') this.setState({ catEdit: null }); return; }
       if (this.state.menu) { if (e.key === 'Escape') this.setState({ menu: false }); return; }
       if (e.key === 'Enter' && e.shiftKey && !this.state.adding) { e.preventDefault(); this.quickAddHere(); return; }
       if (e.key === 'Tab' && !this.state.adding && !typing) { e.preventDefault(); const i = VIEWS.findIndex((v) => v.id === this.state.view); const next = VIEWS[(i + (e.shiftKey ? -1 : 1) + VIEWS.length) % VIEWS.length].id; this.setView(next); return; }
@@ -127,10 +131,45 @@ export default class Canvas extends React.Component<Props, S> {
   }
 
   // ---------- persistence ----------
-  pushPrefs(patch: Partial<Prefs>) { const { view, rails, projects } = this.state; this.sync.prefs({ view, rails, projects, ...patch }); }
+  pushPrefs(patch: Partial<Prefs>) { const { view, rails, projects, categories } = this.state; this.sync.prefs({ view, rails, projects, categories, ...patch }); }
   setView(view: View) { this.overview({ view }); this.pushPrefs({ view }); }
   setRails(rails: Rails) { this.pushPrefs({ rails }); }
   setProjects(projects: UserProject[]) { this.setState({ projects }); this.pushPrefs({ projects }); }
+  setCategories(categories: UserCategory[]) { this.setState({ categories }); this.pushPrefs({ categories }); }
+
+  // ---------- categories ----------
+  openCategoryEditor(id?: string) {
+    const c = id ? catOf(this.state.categories, id) : undefined;
+    if (id && !c) return;
+    if (!id && this.state.categories.length >= MAX_CATEGORIES) { this.toast('That is the maximum number of categories'); return; }
+    const free = CATEGORY_HUES.find((h) => !this.state.categories.some((x) => x.hue === h)) ?? CATEGORY_HUES[0];
+    this.setState({ catEdit: c ? { id: c.id, label: c.label, icon: c.icon, hue: c.hue } : { label: '', icon: CATEGORY_ICONS[0], hue: free }, menu: false });
+  }
+  /** Tapping a suggestion chip fills the editor; the user may still change any of it before saving. */
+  pickSuggestion(sid: string) {
+    const e = this.state.catEdit; const sg = CATEGORY_SUGGESTIONS.find((x) => x.id === sid); if (!e || !sg) return;
+    this.setState({ catEdit: { ...e, label: sg.label, icon: sg.icon, hue: sg.hue, suggestionId: sg.id } }, () => this.catInput.current?.focus());
+  }
+  saveCategory() {
+    const e = this.state.catEdit; if (!e) return;
+    const label = e.label.trim().slice(0, MAX_CATEGORY_LABEL); if (!label) return;
+    const cats = this.state.categories; const existing = e.id ? catOf(cats, e.id) : undefined;
+    // A category made from a suggestion keeps the suggestion's id when it is free: old notes and keyword routing line up with it.
+    const id = existing ? existing.id : e.suggestionId && !catOf(cats, e.suggestionId) ? e.suggestionId : uid();
+    const categories = existing ? cats.map((c) => (c.id === e.id ? { ...c, label, icon: e.icon, hue: e.hue } : c)) : [...cats, { id, label, icon: e.icon, hue: e.hue }];
+    this.setCategories(categories);
+    this.setState({ catEdit: null });
+    this.toast(existing ? 'Category updated' : 'Category created');
+  }
+  deleteCategory(id: string) {
+    const c = catOf(this.state.categories, id); if (!c) return;
+    const categories = this.state.categories.filter((x) => x.id !== id);
+    const stranded = this.state.notes.filter((n) => n.category === id && !n.done).length;
+    this.setCategories(categories);
+    this.setState({ catEdit: null });
+    if (this.state.focus?.key === id) this.overview();
+    this.toast(stranded ? `Category removed, ${stranded} note${stranded === 1 ? '' : 's'} moved to Unsorted` : 'Category removed');
+  }
 
   // ---------- projects ----------
   openProjectEditor(id?: string) {
@@ -187,12 +226,13 @@ export default class Canvas extends React.Component<Props, S> {
   overview(extra?: Partial<S>) { const s = { ...this.state, ...(extra || {}) }; this.cool = Date.now() + 700; this.setState({ ...(extra || {}), focus: null, zoom: this.fitZoom(s), pan: this.centerPan(s), glide: true } as S); }
   estH(n: number, W: number) { const perRow = W < 200 ? 1 : 2; const rows = Math.ceil(n / perRow); return 74 + (n ? rows * 94 + (rows - 1) * 10 : 44); }
   groups() {
-    const { view, notes, projects } = this.state;
-    const dims: Dim[] = view === 'category' ? CATS : view === 'project' ? projects : PRIOS;
+    const { view, notes, projects, categories } = this.state;
+    const dims: Dim[] = view === 'category' ? categories : view === 'project' ? projects : PRIOS;
     const keyOf = (n: Note) => (view === 'category' ? n.category : view === 'project' ? n.project : n.priority ? 'P' + n.priority : null);
-    const groups: Group[] = dims.map((d) => ({ key: d.id, label: d.label, icon: d.icon, notes: [] }));
-    // The Projects view always ends with a prompt: "create your first project" when there are none, "new project" after that.
+    const groups: Group[] = dims.map((d) => ({ key: d.id, label: d.label, icon: d.icon, hue: d.hue, notes: [] }));
+    // The Projects and Categories views always end with a prompt: "create your first …" when there are none, "new …" after that.
     if (view === 'project') groups.push({ key: NEW_KEY, label: projects.length ? 'New project' : 'Create your first project', icon: 'add-01', ghost: true, notes: [] });
+    if (view === 'category') groups.push({ key: NEW_KEY, label: categories.length ? 'New category' : 'Create your first category', icon: 'add-01', ghost: true, notes: [] });
     const un: Group = { key: '_un', label: 'Unsorted', icon: 'inbox', rail: true, notes: [] }, done: Group = { key: '_done', label: 'Done', icon: 'checkmark-circle-02', rail: true, notes: [] };
     notes.forEach((n) => { if (n.done) return done.notes.push(n); (groups.find((g) => g.key === keyOf(n)) || un).notes.push(n); });
     if (view !== 'priority') { const byPrio = (a: Note, b: Note) => (a.priority || 9) - (b.priority || 9); [...groups, un].forEach((g) => g.notes.sort(byPrio)); }
@@ -244,7 +284,7 @@ export default class Canvas extends React.Component<Props, S> {
     const f = this.state.focus; const { view } = this.state; const draft = emptyDraft();
     if (f) {
       const k = f.key;
-      if (view === 'category' && catOf(k)) draft.category = k as Category;
+      if (view === 'category' && catOf(this.state.categories, k)) draft.category = k;
       else if (view === 'project' && projOf(this.state.projects, k)) draft.project = k;
       else if (view === 'priority' && /^P[123]$/.test(k)) draft.priority = +k[1] as Priority;
       if (f.type === 'note') { this.focusCluster(k); setTimeout(() => this.setState({ adding: true, draft }), 450); return; }
@@ -297,10 +337,10 @@ export default class Canvas extends React.Component<Props, S> {
   toggleDone(id: string) { const n = this.state.notes.find((n) => n.id === id); if (!n) return; this.updateNote(id, { done: !n.done }); this.setState({ flash: id }); this.toast(!n.done ? 'Moved to Done' : 'Back on the canvas'); }
   toast(text: string, ms = 2200) { clearTimeout(this.tt); this.setState({ toast: text }); this.tt = setTimeout(() => this.setState({ toast: null }), ms); }
   submit() {
-    const d = this.state.draft; const text = d.text.trim(); if (!text) return; const r = routeDraft({ ...d, text }, this.state.projects);
+    const d = this.state.draft; const text = d.text.trim(); if (!text) return; const r = routeDraft({ ...d, text }, this.state.projects, this.state.categories);
     const note: Note = { id: uid(), text, category: r.category, project: r.project, priority: r.priority, done: false, comments: [], createdAt: new Date().toISOString() };
     const notes = [...this.state.notes, note];
-    const target = this.state.view === 'category' ? catOf(r.category) : this.state.view === 'project' ? projOf(this.state.projects, r.project) : r.priority ? PRIOS[r.priority - 1] : null;
+    const target = this.state.view === 'category' ? catOf(this.state.categories, r.category) : this.state.view === 'project' ? projOf(this.state.projects, r.project) : r.priority ? PRIOS[r.priority - 1] : null;
     this.setState({ notes, adding: false, draft: emptyDraft(), flash: note.id }); this.sync.upsert(note);
     this.toast(target ? (r.auto ? 'Auto-routed to ' : 'Dropped in ') + target.label : 'Dropped in Unsorted');
   }
@@ -320,6 +360,17 @@ export default class Canvas extends React.Component<Props, S> {
         </button>
       );
     });
+  }
+  /** The user's life areas as chips; with none yet, a single "+" that opens the category editor instead. */
+  categoryChips(current: string | null, set: (v: string | number | null) => void, big?: boolean) {
+    const { categories } = this.state;
+    if (categories.length) return this.chips(categories, 'category', current, set, big);
+    return [
+      <button key="_add" type="button" className="bv-chip" title="New category" onClick={(e) => { e.stopPropagation(); this.openCategoryEditor(); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: big ? 12.5 : 12, padding: big ? '6px 11px 6px 9px' : '0 10px 0 8px', height: big ? undefined : 30, minHeight: 30, borderRadius: 999, border: '1px dashed rgba(255,255,255,.22)', background: 'transparent', color: 'rgba(207,199,221,.8)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <Icon name="add-01" size={13} color="currentColor" />Add category
+      </button>,
+    ];
   }
   /** Project chips plus a trailing "+" that opens the project editor, so a project can be made mid-thought. */
   projectChips(current: string | null, set: (v: string | number | null) => void, big?: boolean) {
@@ -350,25 +401,29 @@ export default class Canvas extends React.Component<Props, S> {
     const toggle = (e: React.MouseEvent) => { e.stopPropagation(); const rails = { ...s.rails, [g.key]: !collapsed } as Rails; if (focus) this.setState({ rails }); else this.overview({ rails }); this.setRails(rails); };
     const onClick = (e: React.MouseEvent) => { if (this.moved || (e.target as HTMLElement).closest('[data-nopan]')) return; if (collapsed) { toggle(e); return; } if (isF && focus!.type === 'cluster') return; this.focusCluster(g.key); };
     if (g.ghost) {
-      const first = !s.projects.length;
+      const cat = view === 'category'; const first = cat ? !s.categories.length : !s.projects.length;
+      const open = () => (cat ? this.openCategoryEditor() : this.openProjectEditor());
+      const blurb = cat ? 'Life areas are yours to name: sport, family, money, whatever your week is made of. Each gets a colour, and notes that sound like it find their way there on their own.'
+        : 'Projects are yours to name: a trip, a side thing, a client, a house move. Notes that mention the name find their way here on their own.';
       return (
-        <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed="0" data-nopan="1" className="bv-cluster" onClick={(e) => { e.stopPropagation(); if (!this.moved) this.openProjectEditor(); }}
+        <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed="0" data-nopan="1" className="bv-cluster" onClick={(e) => { e.stopPropagation(); if (!this.moved) open(); }}
           style={{ position: 'absolute', left: 0, top: 0, width: w, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: 'pointer', padding: first ? '30px 20px 28px' : '18px 16px 16px', borderRadius: 22, border: '1px dashed rgba(255,255,255,.18)', background: 'rgba(255,255,255,.015)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
           <Icon name="add-01" size={first ? 30 : 24} color="#c9b8ff" style={{ opacity: 0.9 }} />
           <div style={{ fontFamily: OX, fontWeight: 700, fontSize: first ? 17 : 14, letterSpacing: '.02em', color: '#f3eefc' }}>{g.label}</div>
-          {first && <div style={{ fontSize: 13, lineHeight: 1.45, color: 'rgba(236,230,245,.5)', maxWidth: 260 }}>Projects are yours to name: a trip, a side thing, a client, a house move. Notes that mention the name find their way here on their own.</div>}
-          <button type="button" className="bv-primary" onClick={(e) => { e.stopPropagation(); this.openProjectEditor(); }}
-            style={{ marginTop: first ? 6 : 0, fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.3)' }}>{first ? 'Create a project' : 'Add'}</button>
+          {first && <div style={{ fontSize: 13, lineHeight: 1.45, color: 'rgba(236,230,245,.5)', maxWidth: 260 }}>{blurb}</div>}
+          <button type="button" className="bv-primary" onClick={(e) => { e.stopPropagation(); open(); }}
+            style={{ marginTop: first ? 6 : 0, fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.3)' }}>{first ? (cat ? 'Create a category' : 'Create a project') : 'Add'}</button>
         </div>
       );
     }
-    const editable = view === 'project' && !g.rail;
+    const editable = (view === 'project' || view === 'category') && !g.rail;
+    const glyphColor = g.hue != null ? `oklch(85% 0.12 ${g.hue})` : '#f3eefc';
     return (
       <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed={collapsed ? '1' : '0'} className="bv-cluster" onClick={onClick}
         style={{ position: 'absolute', left: 0, top: 0, width: w, minHeight: collapsed ? h : 0, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s, width .5s, background .4s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: isF ? 'default' : 'pointer', padding: collapsed ? (mobile ? '12px 16px' : '16px 12px') : '18px 16px 16px', borderRadius: 22, border: '1px solid rgba(255,255,255,.08)', background: isF ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.028)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
         {collapsed ? (
           <div style={{ display: 'flex', flexDirection: mobile ? 'row' : 'column', alignItems: 'center', gap: 14, height: '100%' }}>
-            <Icon name={g.icon} size={20} style={{ opacity: 0.95 }} />
+            <Icon name={g.icon} size={20} color={glyphColor} style={{ opacity: 0.95 }} />
             <div style={{ fontFamily: OX, fontWeight: 700, fontSize: 11, letterSpacing: '.04em', color: 'rgba(243,238,252,.8)', writingMode: mobile ? 'horizontal-tb' : 'vertical-rl' }}>{g.label}</div>
             <div style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.1em', color: 'rgba(236,230,245,.4)', marginLeft: mobile ? 'auto' : 0 }}>{String(g.notes.length).padStart(2, '0')}</div>
             {this.roundBtn({ onClick: toggle, title: 'Expand', children: glyph })}
@@ -377,12 +432,12 @@ export default class Canvas extends React.Component<Props, S> {
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Icon name={g.icon} size={28} style={{ opacity: 0.95 }} />
+                <Icon name={g.icon} size={28} color={glyphColor} style={{ opacity: 0.95 }} />
                 <div style={{ fontFamily: OX, fontWeight: 700, fontSize: 18, letterSpacing: '.02em', color: '#f3eefc', textShadow: '0 0 16px rgba(243,238,252,.35)' }}>{g.label}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.1em', color: 'rgba(236,230,245,.4)' }}>{String(g.notes.length).padStart(2, '0')}</div>
-                {editable && this.roundBtn({ onClick: (e) => { e.stopPropagation(); this.openProjectEditor(g.key); }, title: 'Edit project', children: <Icon name="edit-02" size={12} color="currentColor" /> })}
+                {editable && this.roundBtn({ onClick: (e) => { e.stopPropagation(); if (view === 'category') this.openCategoryEditor(g.key); else this.openProjectEditor(g.key); }, title: view === 'category' ? 'Edit category' : 'Edit project', children: <Icon name="edit-02" size={12} color="currentColor" /> })}
                 {g.rail && this.roundBtn({ onClick: toggle, title: 'Collapse', children: glyph })}
               </div>
             </div>
@@ -392,9 +447,9 @@ export default class Canvas extends React.Component<Props, S> {
                 const icons: { name: IconName; title: string }[] = [];
                 const add = (list: Dim[], id: string | null) => { const d = list.find((x) => x.id === id); if (d) icons.push({ name: d.icon, title: d.label }); };
                 if (other === 'project' || view === 'priority') add(s.projects, n.project);
-                if (other === 'category' || view === 'priority') add(CATS, n.category);
+                if (other === 'category' || view === 'priority') add(s.categories, n.category);
                 if (view !== 'priority' && n.priority) add(PRIOS, 'P' + n.priority);
-                const cat = catOf(n.category); const hue = cat ? cat.hue : null; const isN = noteF && focus!.type === 'note' && focus!.noteId === n.id; const cm = n.comments.length;
+                const cat = catOf(s.categories, n.category); const hue = cat ? cat.hue : null; const isN = noteF && focus!.type === 'note' && focus!.noteId === n.id; const cm = n.comments.length;
                 return (
                   <div key={n.id} data-nopan="1" data-note-id={n.id} className="bv-note"
                     onClick={(e) => { e.stopPropagation(); if (this.moved || isN) return; this.focusNote(n.id, g.key, e.currentTarget.getBoundingClientRect()); }}
@@ -424,7 +479,7 @@ export default class Canvas extends React.Component<Props, S> {
 
   renderPanel(en: Note) {
     const s = this.state; const f = s.focus!; const { mobile } = this.lp(s);
-    const cms = en.comments; const ci = clamp(s.cIdx, 0, Math.max(0, cms.length - 1)); const cat = catOf(en.category); const hue = cat ? cat.hue : null;
+    const cms = en.comments; const ci = clamp(s.cIdx, 0, Math.max(0, cms.length - 1)); const cat = catOf(s.categories, en.category); const hue = cat ? cat.hue : null;
     const setN = (dim: 'category' | 'project' | 'priority') => (val: string | number | null) => this.updateNote(en.id, { [dim]: val } as Partial<Note>);
     const addComment = () => { const t = s.commentDraft.trim(); if (!t) return; const comments = [...cms, { id: uid(), text: t, at: new Date().toISOString() }]; this.updateNote(en.id, { comments }); this.setState({ commentDraft: '', cIdx: comments.length - 1 }); };
     const pos: React.CSSProperties = mobile ? { left: 10, right: 10, bottom: 10, maxHeight: '58vh' } : s.vw >= 900 ? { right: 24, top: '50%', transform: 'translateY(-50%)', width: 380, maxHeight: 'calc(100vh - 48px)' } : { left: '50%', bottom: 16, transform: 'translateX(-50%)', width: 'min(480px, calc(100vw - 32px))', maxHeight: '52vh' };
@@ -440,7 +495,7 @@ export default class Canvas extends React.Component<Props, S> {
         </div>
         <textarea className="bv-ta" value={en.text} onChange={(e) => this.updateNote(en.id, { text: e.target.value })} rows={3} style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: 0, caretColor: '#c9b8ff' }} />
         <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start', paddingTop: 4 }}>
-          {this.label('Life', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(CATS, 'category', en.category, setN('category'))}</div>
+          {this.label('Life', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.categoryChips(en.category, setN('category'))}</div>
           {this.label('Project', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.projectChips(en.project, setN('project'))}</div>
           {this.label('Priority', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(PRIOS, 'priority', en.priority, setN('priority'))}</div>
         </div>
@@ -488,7 +543,7 @@ export default class Canvas extends React.Component<Props, S> {
   renderAdd() {
     const s = this.state; const d = s.draft; const { mobile } = this.lp(s);
     const setD = (dim: 'category' | 'project' | 'priority') => (val: string | number | null) => this.setState({ draft: { ...this.state.draft, [dim]: val } });
-    const routed = routeDraft(d, s.projects); const rt = routed.auto ? (routed.category ? catOf(routed.category) : projOf(s.projects, routed.project)) : null;
+    const routed = routeDraft(d, s.projects, s.categories); const rt = routed.auto ? (routed.category ? catOf(s.categories, routed.category) : projOf(s.projects, routed.project)) : null;
     const routeHint = !d.text.trim() ? 'Tags optional, it finds its own cluster' : rt ? 'Looks like ' + rt.label + ', will route there' : d.category || d.project || d.priority ? 'Ready to drop' : 'No match yet, lands in Unsorted';
     const row = (lbl: string, chips: React.ReactNode) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{this.label(lbl, { width: 64 })}{chips}</div>
@@ -504,7 +559,7 @@ export default class Canvas extends React.Component<Props, S> {
           <textarea className="bv-ta" autoFocus value={d.text} onChange={(e) => this.setState({ draft: { ...this.state.draft, text: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submit(); } }} placeholder="What's on your mind?" rows={3}
             style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 20, lineHeight: 1.35, padding: '2px 0', caretColor: '#c9b8ff' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {row('Life', this.chips(CATS, 'category', d.category, setD('category'), true))}
+            {row('Life', this.categoryChips(d.category, setD('category'), true))}
             {row('Project', this.projectChips(d.project, setD('project'), true))}
             {row('Priority', this.chips(PRIOS, 'priority', d.priority, setD('priority'), true))}
           </div>
@@ -534,6 +589,9 @@ export default class Canvas extends React.Component<Props, S> {
           <div style={{ fontSize: 12, color: 'rgba(236,230,245,.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
           <div style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.4, color: 'rgba(201,184,255,.75)' }}>Beta. Export your notes now and then; a copy on your own disk beats trusting one database.</div>
         </div>
+        {item('New category', () => this.openCategoryEditor(), { icon: 'add-01' })}
+        {item('New project', () => this.openProjectEditor(), { icon: 'add-01' })}
+        <div style={{ height: 1, background: 'rgba(255,255,255,.1)', margin: '4px 6px' }} />
         {item('Export my notes', () => this.setState({ menu: false }), { icon: 'download-04', href: '/api/export' })}
         {item('Privacy', () => this.setState({ menu: false }), { icon: 'shield-01', href: '/privacy' })}
         {item('Sign out', () => this.signOutNow(), { icon: 'logout-03' })}
@@ -573,6 +631,65 @@ export default class Canvas extends React.Component<Props, S> {
               ? <button type="button" className="bv-danger" onClick={() => this.deleteProject(e.id!)} style={pill({ border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.05)', color: 'rgba(236,230,245,.75)' })}>Remove</button>
               : <div style={{ fontSize: 12, color: 'rgba(236,230,245,.45)' }}>Notes that mention the name route here</div>}
             <button type="button" className="bv-primary" onClick={() => this.saveProject()} style={{ ...pill({ border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, boxShadow: '0 0 24px rgba(169,140,255,.4)' }), opacity: ok ? 1 : 0.45 }}>{editing ? 'Save' : 'Create'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  renderCategoryEditor(e: CatEdit) {
+    const { mobile } = this.lp(this.state); const editing = !!e.id; const ok = !!e.label.trim(); const cats = this.state.categories;
+    const pill = (extra: React.CSSProperties): React.CSSProperties => ({ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, cursor: 'pointer', ...extra });
+    const taken = (sid: string, label: string) => cats.some((c) => c.id === sid || c.label.toLowerCase() === label.toLowerCase());
+    const suggestions = editing ? [] : CATEGORY_SUGGESTIONS.filter((sg) => !taken(sg.id, sg.label));
+    const icons = CATEGORY_ICONS.includes(e.icon) ? CATEGORY_ICONS : [e.icon, ...CATEGORY_ICONS];
+    const set = (patch: Partial<CatEdit>) => this.setState({ catEdit: { ...e, ...patch, suggestionId: patch.label !== undefined ? undefined : e.suggestionId } });
+    return (
+      <div data-nopan="1" data-ui="1" onClick={() => this.setState({ catEdit: null })} onPointerDown={(ev) => ev.stopPropagation()}
+        style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-end' : 'center', justifyContent: 'center', padding: mobile ? '0 10px 10px' : 24, cursor: 'default' }}>
+        <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); this.saveCategory(); } }} style={{ width: '100%', maxWidth: 480, maxHeight: mobile ? '86vh' : 'calc(100vh - 48px)', overflow: 'auto', borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>{editing ? 'Edit category' : 'New category'}</div>
+            <div style={{ fontSize: 11, color: 'rgba(236,230,245,.4)' }}>Enter to save · Esc to close</div>
+          </div>
+          {suggestions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {this.label('Pick one or name your own')}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {suggestions.map((sg) => { const on = e.suggestionId === sg.id; return (
+                  <button key={sg.id} type="button" className="bv-chip" onMouseDown={(ev) => ev.preventDefault()} onClick={() => this.pickSuggestion(sg.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '0 10px 0 8px', height: 30, borderRadius: 999, border: `1px solid ${on ? 'transparent' : `oklch(80% 0.13 ${sg.hue} / 0.45)`}`, background: on ? `oklch(85% 0.12 ${sg.hue})` : `oklch(80% 0.13 ${sg.hue} / 0.14)`, color: on ? '#120a1f' : '#f3eefc', cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap' }}>
+                    <Icon name={sg.icon} size={13} color={on ? '#120a1f' : `oklch(85% 0.12 ${sg.hue})`} />{sg.label}
+                  </button>
+                ); })}
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 14, display: 'grid', placeItems: 'center', background: `oklch(85% 0.12 ${e.hue})`, border: '1px solid rgba(255,255,255,.14)', flex: 'none', transition: 'background .2s' }}><Icon name={e.icon} size={22} color="#120a1f" /></div>
+            <input ref={this.catInput} className="bv-input" autoFocus={editing} value={e.label} maxLength={MAX_CATEGORY_LABEL} placeholder="Name it: Sport, Family, Money…"
+              onChange={(ev) => set({ label: ev.target.value })}
+              style={{ flex: 1, minWidth: 0, padding: '11px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 16, outline: 'none' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
+            {icons.map((ic) => { const on = ic === e.icon; return (
+              <button key={ic} type="button" className="bv-chip" onMouseDown={(ev) => ev.preventDefault()} onClick={() => set({ icon: ic })} title={ic}
+                style={{ aspectRatio: '1', borderRadius: 12, border: `1px solid ${on ? 'transparent' : 'rgba(255,255,255,.12)'}`, background: on ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.05)', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0, transition: 'all .15s' }}>
+                <Icon name={ic} size={18} color={on ? '#120a1f' : '#cfc7dd'} />
+              </button>
+            ); })}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {CATEGORY_HUES.map((h) => { const on = h === e.hue; return (
+              <button key={h} type="button" className="bv-chip" onMouseDown={(ev) => ev.preventDefault()} onClick={() => set({ hue: h })} title={`Hue ${h}`} aria-label={`Hue ${h}`}
+                style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${on ? '#f3eefc' : 'transparent'}`, background: `oklch(80% 0.13 ${h})`, cursor: 'pointer', padding: 0, boxShadow: on ? '0 0 0 2px rgba(18,10,31,.6) inset' : 'none', transition: 'all .15s' }} />
+            ); })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 2 }}>
+            {editing
+              ? <button type="button" className="bv-danger" onClick={() => this.deleteCategory(e.id!)} style={pill({ border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.05)', color: 'rgba(236,230,245,.75)' })}>Remove</button>
+              : <div style={{ fontSize: 12, color: 'rgba(236,230,245,.45)' }}>Notes that sound like it route here</div>}
+            <button type="button" className="bv-primary" onClick={() => this.saveCategory()} style={{ ...pill({ border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, boxShadow: '0 0 24px rgba(169,140,255,.4)' }), opacity: ok ? 1 : 0.45 }}>{editing ? 'Save' : 'Create'}</button>
           </div>
         </div>
       </div>
@@ -669,6 +786,7 @@ export default class Canvas extends React.Component<Props, S> {
         {en && this.renderPanel(en)}
         {s.adding && this.renderAdd()}
         {s.projEdit && this.renderProjectEditor(s.projEdit)}
+        {s.catEdit && this.renderCategoryEditor(s.catEdit)}
       </div>
     );
   }

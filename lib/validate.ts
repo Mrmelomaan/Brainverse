@@ -1,4 +1,4 @@
-import { MAX_PROJECTS, MAX_PROJECT_LABEL, PROJECT_ICONS, normaliseNote, type Note, type Prefs, type UserProject, type View } from './model';
+import { CATEGORY_ICONS, CATEGORY_SUGGESTIONS, MAX_CATEGORIES, MAX_CATEGORY_LABEL, MAX_PROJECTS, MAX_PROJECT_LABEL, PROJECT_ICONS, normaliseNote, type Note, type Prefs, type UserCategory, type UserProject, type View } from './model';
 import type { IconName } from './icons';
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -43,9 +43,29 @@ export function parseProjects(raw: unknown): UserProject[] {
   return out;
 }
 
+const CATEGORY_ICON_SET = new Set<IconName>([...CATEGORY_ICONS, ...CATEGORY_SUGGESTIONS.map((s) => s.icon)]);
+
+export function parseCategories(raw: unknown): UserCategory[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: UserCategory[] = [];
+  for (const c of raw) {
+    if (!c || typeof c !== 'object') continue;
+    const { id, label, icon, hue } = c as Partial<UserCategory>;
+    if (!isId(id) || seen.has(id) || typeof label !== 'string') continue;
+    const text = label.trim().slice(0, MAX_CATEGORY_LABEL);
+    if (!text) continue;
+    seen.add(id);
+    const h = typeof hue === 'number' && Number.isFinite(hue) ? Math.min(360, Math.max(0, Math.round(hue))) : 0;
+    out.push({ id, label: text, icon: CATEGORY_ICON_SET.has(icon as IconName) ? (icon as IconName) : CATEGORY_ICONS[0], hue: h });
+    if (out.length >= MAX_CATEGORIES) break;
+  }
+  return out;
+}
+
 export function parsePrefs(raw: unknown): Prefs | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Partial<Prefs>;
   const view: View = (['category', 'project', 'priority'] as View[]).includes(r.view as View) ? (r.view as View) : 'category';
-  return { view, rails: { _un: !!r.rails?._un, _done: !!r.rails?._done }, projects: parseProjects(r.projects) };
+  return { view, rails: { _un: !!r.rails?._un, _done: !!r.rails?._done }, projects: parseProjects(r.projects), categories: parseCategories(r.categories) };
 }

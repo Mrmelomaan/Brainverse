@@ -13,8 +13,10 @@ export async function PUT(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad json' }, { status: 400 }); }
   const p = parsePrefs(body);
   if (!p) return NextResponse.json({ error: 'invalid prefs' }, { status: 400 });
+  // A client built before per-user categories omits the field; never let it wipe them.
+  const hasCategories = Array.isArray((body as { categories?: unknown }).categories);
   try {
-    await savePrefs(owner, p);
+    await savePrefs(owner, p, { categories: hasCategories });
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('prefs PUT', e);

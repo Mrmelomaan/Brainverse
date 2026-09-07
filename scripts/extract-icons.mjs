@@ -5,8 +5,10 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const json = JSON.parse(readFileSync(require.resolve('@iconify-json/hugeicons/icons.json'), 'utf8'));
 const NAMES = [
-  // categories, priorities, rails
-  'dumbbell-01','restaurant-02','repeat','briefcase-01','flash','clock-01','moon','inbox','checkmark-circle-02',
+  // priorities, rails
+  'flash','clock-01','moon','inbox','checkmark-circle-02',
+  // category suggestions + picker (lib/model.ts CATEGORY_SUGGESTIONS / CATEGORY_ICONS)
+  'dumbbell-01','restaurant-02','repeat','briefcase-01','stethoscope','moon-02','yoga-01','user-multiple','wallet-01','chart-line-data-01','mortarboard-02','tree-01','task-01','file-01','game-controller-01','bulb',
   // project icon palette (lib/model.ts PROJECT_ICONS)
   'rocket-01','folder-01','home-01','laptop','camera-01','paint-board','book-open-01','airplane-01','favourite','star','money-bag-01','plant-01','music-note-01','shopping-cart-01','user-group','target-01',
   // chrome

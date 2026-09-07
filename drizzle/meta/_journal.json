@@ -15,6 +15,13 @@
       "when": 1788556725742,
       "tag": "0001_launch",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788809132725,
+      "tag": "0002_categories",
+      "breakpoints": true
     }
   ]
 }
