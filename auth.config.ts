@@ -18,6 +18,13 @@ export const authConfig = {
   pages: { signIn: '/login', error: '/login' },
   trustHost: true,
   callbacks: {
+    /** Without a database adapter Auth.js gives `user.id` a fresh random uuid on every sign-in, which
+     *  would key each session's notes under a different owner. Pin the token to Google's stable `sub`. */
+    jwt({ token, account, profile }) {
+      const sub = account?.providerAccountId ?? (profile as { sub?: string } | undefined)?.sub;
+      if (account?.provider === 'google' && sub) token.sub = sub;
+      return token;
+    },
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
       return session;
