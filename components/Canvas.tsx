@@ -518,7 +518,7 @@ export default class Canvas extends React.Component<Props, S> {
     const keepInView = (e: React.FocusEvent<HTMLElement>) => { if (mobile) { const el = e.currentTarget; setTimeout(() => el.scrollIntoView({ block: 'nearest' }), 250); } };
     return (
       <div data-nopan="1" data-ui="1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
-        style={{ position: 'absolute', ...pos, overflow: 'auto', borderRadius: 24, padding: '20px 20px 16px', background: hue != null ? `linear-gradient(180deg, oklch(80% 0.13 ${hue} / 0.14), rgba(255,255,255,.07))` : 'rgba(255,255,255,.09)', border: `1px solid ${tint(hue, 0.35)}`, backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', animation: `${s.vw >= 900 && !mobile ? 'bv-pop' : 'bv-pop'} .25s ease-out`, display: 'flex', flexDirection: 'column', gap: 14, cursor: 'default' }}>
+        style={{ position: 'absolute', ...pos, overflow: 'auto', borderRadius: 24, padding: '20px 20px 16px', background: (hue != null ? `linear-gradient(180deg, oklch(80% 0.13 ${hue} / 0.14), rgba(255,255,255,.07))` : 'linear-gradient(rgba(255,255,255,.09), rgba(255,255,255,.09))') + (mobile ? ', rgba(18,10,31,.82)' : ''), border: `1px solid ${tint(hue, 0.35)}`, backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 14, cursor: 'default' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>Note</div>
           {this.roundBtn({ onClick: () => this.back(), title: 'Back to area', size: 28, fontSize: 14, children: '×' })}
@@ -598,7 +598,7 @@ export default class Canvas extends React.Component<Props, S> {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 4 }}>
             <div style={{ fontSize: 12, color: 'rgba(236,230,245,.45)' }}>{routeHint}</div>
-            <button type="button" className="bv-primary" onClick={() => this.submit()} style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '12px 20px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.4)', opacity: d.text.trim() ? 1 : 0.45 }}>Drop it</button>
+            <button type="button" className="bv-primary" onClick={() => this.submit()} style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '12px 20px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.4)', opacity: d.text.trim() ? 1 : 0.45, whiteSpace: 'nowrap', flex: 'none' }}>Drop it</button>
           </div>
         </div>
       </div>
@@ -682,7 +682,7 @@ export default class Canvas extends React.Component<Props, S> {
           style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.35)', opacity: s.fab ? 1 : 0, pointerEvents: s.fab ? 'auto' : 'none', transition: 'opacity .25s' }} />
         <div data-nopan="1" data-ui="1" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 12px', paddingBottom: 'max(10px, env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(0deg, rgba(18,10,31,.96) 0%, rgba(18,10,31,.8) 70%, rgba(18,10,31,0) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 4, borderRadius: 999, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-            {f && <button type="button" className="bv-pill" onClick={() => this.back()} style={{ fontFamily: OX, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', padding: '0 10px', minHeight: 40, borderRadius: 999, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'rgba(236,230,245,.75)', cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none' }}>{f.type === 'note' ? '← Area' : '← Overview'}</button>}
+            {f && <button type="button" className="bv-pill" onClick={() => this.back()} style={{ fontFamily: OX, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', padding: '0 10px', minHeight: 40, borderRadius: 999, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'rgba(236,230,245,.75)', cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none' }} title={f.type === 'note' ? 'Back to area' : 'Back to overview'}>{f.type === 'note' ? '← Area' : '← Back'}</button>}
             {this.renderSwitch(!!f)}
           </div>
           <div style={{ position: 'relative', flex: 'none', width: 48, height: 48 }}>
