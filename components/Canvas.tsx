@@ -24,6 +24,8 @@ type S = {
   view: View; notes: Note[]; rails: Rails; projects: UserProject[]; categories: UserCategory[]; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
   cIdx: number; commentDraft: string; adding: boolean; draft: Draft; vw: number; vh: number; toast: string | null; flash: string | null;
   ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan; menu: boolean; projEdit: ProjEdit | null; catEdit: CatEdit | null; busy: boolean;
+  /** Mobile speed-dial around the + button (note / project / category). */
+  fab: boolean;
   /** Mobile keyboard: `kb` is how much of the layout viewport the on-screen keyboard covers (px), `vvh` the visible height. */
   kb: number; vvh: number;
 };
@@ -81,7 +83,7 @@ export default class Canvas extends React.Component<Props, S> {
     const vw = 1280, vh = 800;
     const st: S = {
       view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, projects: props.initial.prefs.projects, categories: props.initial.prefs.categories, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
-      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, catEdit: null, busy: false, kb: 0, vvh: vh,
+      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, catEdit: null, busy: false, fab: false, kb: 0, vvh: vh,
     };
     st.zoom = this.fitZoom(st); st.pan = this.centerPan(st);
     this.state = st;
@@ -113,6 +115,7 @@ export default class Canvas extends React.Component<Props, S> {
       if (this.state.projEdit) { if (e.key === 'Escape') this.setState({ projEdit: null }); return; }
       if (this.state.catEdit) { if (e.key === 'Escape') this.setState({ catEdit: null }); return; }
       if (this.state.menu) { if (e.key === 'Escape') this.setState({ menu: false }); return; }
+      if (this.state.fab) { if (e.key === 'Escape') this.setState({ fab: false }); return; }
       if (e.key === 'Enter' && e.shiftKey && !this.state.adding) { e.preventDefault(); this.quickAddHere(); return; }
       if (e.key === 'Tab' && !this.state.adding && !typing) { e.preventDefault(); const i = VIEWS.findIndex((v) => v.id === this.state.view); const next = VIEWS[(i + (e.shiftKey ? -1 : 1) + VIEWS.length) % VIEWS.length].id; this.setView(next); return; }
       if (!typing && !this.state.adding) {
@@ -644,6 +647,26 @@ export default class Canvas extends React.Component<Props, S> {
       </div>
     );
   }
+  /** Speed-dial: three glass buttons fan out in an arc above the mobile +. Always mounted so closing animates in reverse. */
+  renderDial(focused: boolean) {
+    const open = this.state.fab;
+    const fire = (fn: () => void) => (e: React.MouseEvent<HTMLButtonElement>) => { e.stopPropagation(); this.setState({ fab: false }); fn(); };
+    const items: { label: string; icon: IconName; dx: number; dy: number; run: () => void }[] = [
+      { label: 'Project', icon: 'folder-01', dx: -92, dy: -58, run: () => this.openProjectEditor() },
+      { label: 'Note', icon: 'note-add', dx: -50, dy: -102, run: () => { if (focused) this.quickAddHere(); else this.setState({ adding: true }); } },
+      { label: 'Category', icon: 'tag-01', dx: 4, dy: -116, run: () => this.openCategoryEditor() },
+    ];
+    return items.map((it, i) => (
+      <div key={it.label} aria-hidden={!open} style={{ position: 'absolute', left: 2, top: 2, width: 44, height: 44, pointerEvents: open ? 'auto' : 'none', opacity: open ? 1 : 0,
+        transform: open ? `translate(${it.dx}px, ${it.dy}px) scale(1)` : 'translate(0,0) scale(.4)', transition: `transform .32s cubic-bezier(.2,.8,.2,1) ${i * 40}ms, opacity .2s ${i * 40}ms` }}>
+        <button type="button" className="bv-round" tabIndex={open ? 0 : -1} title={`New ${it.label.toLowerCase()}`} aria-label={`New ${it.label.toLowerCase()}`} onClick={fire(it.run)}
+          style={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.12)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', color: '#f3eefc', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0, boxShadow: '0 6px 20px rgba(0,0,0,.35)' }}>
+          <Icon name={it.icon} size={18} color="#f3eefc" />
+        </button>
+        <div style={{ position: 'absolute', top: 47, left: '50%', transform: 'translateX(-50%)', fontFamily: OX, fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(236,230,245,.7)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{it.label}</div>
+      </div>
+    ));
+  }
   /** Mobile chrome: an avatar top-right (opens the account menu) and a bottom bar with back, the view switcher and +. */
   renderMobileChrome() {
     const s = this.state; const f = s.focus; const a = this.props.initial.account;
@@ -655,13 +678,20 @@ export default class Canvas extends React.Component<Props, S> {
             style={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontFamily: OX, fontWeight: 700, fontSize: 12, letterSpacing: '.04em', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0, boxShadow: '0 6px 20px rgba(0,0,0,.35)' }}>{initials}</button>
           {s.menu && this.renderMenu()}
         </div>
+        <div data-nopan="1" data-ui="1" onClick={(e) => { e.stopPropagation(); this.setState({ fab: false }); }} onPointerDown={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.35)', opacity: s.fab ? 1 : 0, pointerEvents: s.fab ? 'auto' : 'none', transition: 'opacity .25s' }} />
         <div data-nopan="1" data-ui="1" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 12px', paddingBottom: 'max(10px, env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(0deg, rgba(18,10,31,.96) 0%, rgba(18,10,31,.8) 70%, rgba(18,10,31,0) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 4, borderRadius: 999, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
             {f && <button type="button" className="bv-pill" onClick={() => this.back()} style={{ fontFamily: OX, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', padding: '0 10px', minHeight: 40, borderRadius: 999, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'rgba(236,230,245,.75)', cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none' }}>{f.type === 'note' ? '← Area' : '← Overview'}</button>}
             {this.renderSwitch(!!f)}
           </div>
-          <button type="button" className="bv-fab" onClick={(e) => { e.stopPropagation(); if (f) this.quickAddHere(); else this.setState({ adding: true }); }} title="Add a thought" aria-label="Add a thought"
-            style={{ flex: 'none', display: 'grid', width: 48, height: 48, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 26, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 28px rgba(169,140,255,.5), 0 8px 24px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>+</button>
+          <div style={{ position: 'relative', flex: 'none', width: 48, height: 48 }}>
+            {this.renderDial(!!f)}
+            <button type="button" className="bv-fab" onClick={(e) => { e.stopPropagation(); this.setState({ fab: !s.fab }); }} title={s.fab ? 'Close' : 'Add'} aria-label={s.fab ? 'Close' : 'Add'} aria-expanded={s.fab}
+              style={{ display: 'grid', width: 48, height: 48, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 26, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 28px rgba(169,140,255,.5), 0 8px 24px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>
+              <span style={{ display: 'block', transition: 'transform .25s', transform: s.fab ? 'rotate(45deg)' : 'none' }}>+</span>
+            </button>
+          </div>
         </div>
       </>
     );

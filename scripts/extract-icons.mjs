@@ -12,7 +12,7 @@ const NAMES = [
   // project icon palette (lib/model.ts PROJECT_ICONS)
   'rocket-01','folder-01','home-01','laptop','camera-01','paint-board','book-open-01','airplane-01','favourite','star','money-bag-01','plant-01','music-note-01','shopping-cart-01','user-group','target-01',
   // chrome
-  'comment-01','delete-02','calendar-add-01','google','logout-03','cloud-off','arrow-up-right-01','add-01','more-horizontal','download-04','edit-02','user-circle','shield-01',
+  'comment-01','delete-02','calendar-add-01','google','logout-03','cloud-off','arrow-up-right-01','add-01','more-horizontal','download-04','edit-02','user-circle','shield-01','note-add','tag-01',
 ];
 const out = {};
 for (const n of NAMES) {
