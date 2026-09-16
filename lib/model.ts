@@ -77,7 +77,7 @@ export const PRIOS: (Dim & { id: 'P1' | 'P2' | 'P3'; n: Priority })[] = [
   { id: 'P3', n: 3, label: 'P3 · Someday', icon: 'moon' },
 ];
 export const VIEWS: { id: View; label: string }[] = [
-  { id: 'category', label: 'Categories' },
+  { id: 'category', label: 'Sectors' },
   { id: 'project', label: 'Projects' },
   { id: 'priority', label: 'Priority' },
 ];
@@ -138,6 +138,6 @@ export function normaliseNote(raw: Partial<Note> & { id: string }, idx = 0): Not
 export const SEED: Omit<Note, 'id' | 'createdAt'>[] = [
   { text: 'Press N or the + button to drop a new thought. Enter saves it.', category: null, project: null, priority: 1, done: false, comments: [] },
   { text: 'Open a note to give it a life area, a project and a priority. Untagged notes wait here in Unsorted.', category: null, project: null, priority: 2, done: false, comments: [] },
-  { text: 'Tab (or swipe on a phone) switches between Categories, Projects and Priority. Same notes, different sky.', category: null, project: null, priority: 2, done: false, comments: [] },
+  { text: 'Tab (or swipe on a phone) switches between Sectors, Projects and Priority. Same notes, different sky.', category: null, project: null, priority: 2, done: false, comments: [] },
   { text: 'Projects are yours to name. Head to the Projects view to create the first one, then mark these notes done.', category: null, project: null, priority: 3, done: false, comments: [] },
 ];

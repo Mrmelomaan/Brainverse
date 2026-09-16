@@ -158,7 +158,7 @@ export default class Canvas extends React.Component<Props, S> {
   openCategoryEditor(id?: string) {
     const c = id ? catOf(this.state.categories, id) : undefined;
     if (id && !c) return;
-    if (!id && this.state.categories.length >= MAX_CATEGORIES) { this.toast('That is the maximum number of categories'); return; }
+    if (!id && this.state.categories.length >= MAX_CATEGORIES) { this.toast('That is the maximum number of sectors'); return; }
     const free = CATEGORY_HUES.find((h) => !this.state.categories.some((x) => x.hue === h)) ?? CATEGORY_HUES[0];
     this.setState({ catEdit: c ? { id: c.id, label: c.label, icon: c.icon, hue: c.hue } : { label: '', icon: CATEGORY_ICONS[0], hue: free }, menu: false });
   }
@@ -176,7 +176,7 @@ export default class Canvas extends React.Component<Props, S> {
     const categories = existing ? cats.map((c) => (c.id === e.id ? { ...c, label, icon: e.icon, hue: e.hue } : c)) : [...cats, { id, label, icon: e.icon, hue: e.hue }];
     this.setCategories(categories);
     this.setState({ catEdit: null });
-    this.toast(existing ? 'Category updated' : 'Category created');
+    this.toast(existing ? 'Sector updated' : 'Sector created');
   }
   deleteCategory(id: string) {
     const c = catOf(this.state.categories, id); if (!c) return;
@@ -185,7 +185,7 @@ export default class Canvas extends React.Component<Props, S> {
     this.setCategories(categories);
     this.setState({ catEdit: null });
     if (this.state.focus?.key === id) this.overview();
-    this.toast(stranded ? `Category removed, ${stranded} note${stranded === 1 ? '' : 's'} moved to Unsorted` : 'Category removed');
+    this.toast(stranded ? `Category removed, ${stranded} note${stranded === 1 ? '' : 's'} moved to Unsorted` : 'Sector removed');
   }
 
   // ---------- projects ----------
@@ -233,7 +233,7 @@ export default class Canvas extends React.Component<Props, S> {
 
   // ---------- layout ----------
   lp(s: Pick<S, 'vw' | 'rails'>) {
-    const mobile = s.vw < 640; const W = mobile ? Math.min(360, s.vw - 28) : 340; const railW = 280, railC = 56, gapX = 44, gapY = 44;
+    const mobile = s.vw < 640; const W = mobile ? Math.min(360, s.vw - 28) : 340; const railW = 280, railC = 56, gapX = 44, gapY = mobile ? 18 : 44;
     const leftW = mobile ? W : s.rails._un ? railC : railW, rightW = mobile ? W : s.rails._done ? railC : railW;
     const cols = mobile ? 1 : clamp(Math.floor((s.vw - 48 - leftW - rightW - 2 * gapX + gapX) / (W + gapX)), 1, 3);
     return { mobile, cols, W, gapX, gapY, railW, railC, leftW, rightW, worldW: mobile ? W : leftW + gapX + cols * (W + gapX) + rightW };
@@ -249,7 +249,7 @@ export default class Canvas extends React.Component<Props, S> {
     const groups: Group[] = dims.map((d) => ({ key: d.id, label: d.label, icon: d.icon, hue: d.hue, notes: [] }));
     // The Projects and Categories views always end with a prompt: "create your first …" when there are none, "new …" after that.
     if (view === 'project') groups.push({ key: NEW_KEY, label: projects.length ? 'New project' : 'Create your first project', icon: 'add-01', ghost: true, notes: [] });
-    if (view === 'category') groups.push({ key: NEW_KEY, label: categories.length ? 'New category' : 'Create your first category', icon: 'add-01', ghost: true, notes: [] });
+    if (view === 'category') groups.push({ key: NEW_KEY, label: categories.length ? 'New sector' : 'Create your first sector', icon: 'add-01', ghost: true, notes: [] });
     const un: Group = { key: '_un', label: 'Unsorted', icon: 'inbox', rail: true, notes: [] }, done: Group = { key: '_done', label: 'Done', icon: 'checkmark-circle-02', rail: true, notes: [] };
     notes.forEach((n) => { if (n.done) return done.notes.push(n); (groups.find((g) => g.key === keyOf(n)) || un).notes.push(n); });
     if (view !== 'priority') { const byPrio = (a: Note, b: Note) => (a.priority || 9) - (b.priority || 9); [...groups, un].forEach((g) => g.notes.sort(byPrio)); }
@@ -394,7 +394,7 @@ export default class Canvas extends React.Component<Props, S> {
     const { categories } = this.state;
     if (categories.length) return this.chips(categories, 'category', current, set, big);
     return [
-      <button key="_add" type="button" className="bv-chip" title="New category" onClick={(e) => { e.stopPropagation(); this.openCategoryEditor(); }}
+      <button key="_add" type="button" className="bv-chip" title="New sector" onClick={(e) => { e.stopPropagation(); this.openCategoryEditor(); }}
         style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: big ? 12.5 : 12, padding: big ? '6px 11px 6px 9px' : '0 10px 0 8px', height: big ? undefined : 30, minHeight: 30, borderRadius: 999, border: '1px dashed rgba(255,255,255,.22)', background: 'transparent', color: 'rgba(207,199,221,.8)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
         <Icon name="add-01" size={13} color="currentColor" />Add category
       </button>,
@@ -440,7 +440,7 @@ export default class Canvas extends React.Component<Props, S> {
           <div style={{ fontFamily: OX, fontWeight: 700, fontSize: first ? 17 : 14, letterSpacing: '.02em', color: '#f3eefc' }}>{g.label}</div>
           {first && <div style={{ fontSize: 13, lineHeight: 1.45, color: 'rgba(236,230,245,.5)', maxWidth: 260 }}>{blurb}</div>}
           <button type="button" className="bv-primary" onClick={(e) => { e.stopPropagation(); open(); }}
-            style={{ marginTop: first ? 6 : 0, fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.3)' }}>{first ? (cat ? 'Create a category' : 'Create a project') : 'Add'}</button>
+            style={{ marginTop: first ? 6 : 0, fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 24px rgba(169,140,255,.3)' }}>{first ? (cat ? 'Create a sector' : 'Create a project') : 'Add'}</button>
         </div>
       );
     }
@@ -465,7 +465,7 @@ export default class Canvas extends React.Component<Props, S> {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontFamily: OX, fontSize: 10, letterSpacing: '.1em', color: 'rgba(236,230,245,.4)' }}>{String(g.notes.length).padStart(2, '0')}</div>
-                {editable && this.roundBtn({ onClick: (e) => { e.stopPropagation(); if (view === 'category') this.openCategoryEditor(g.key); else this.openProjectEditor(g.key); }, title: view === 'category' ? 'Edit category' : 'Edit project', children: <Icon name="edit-02" size={12} color="currentColor" /> })}
+                {editable && this.roundBtn({ onClick: (e) => { e.stopPropagation(); if (view === 'category') this.openCategoryEditor(g.key); else this.openProjectEditor(g.key); }, title: view === 'category' ? 'Edit sector' : 'Edit project', children: <Icon name="edit-02" size={12} color="currentColor" /> })}
                 {g.rail && this.roundBtn({ onClick: toggle, title: 'Collapse', children: glyph })}
               </div>
             </div>
@@ -527,7 +527,7 @@ export default class Canvas extends React.Component<Props, S> {
           style={mobile ? { width: '100%', flex: 'none', minHeight: 3 * 18 * 1.35 + 24, resize: 'none', border: '1px solid rgba(255,255,255,.1)', outline: 'none', background: 'rgba(255,255,255,.06)', borderRadius: 14, color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: '12px 12px', caretColor: '#c9b8ff' }
             : { width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: 0, caretColor: '#c9b8ff' }} />
         <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start', paddingTop: 4 }}>
-          {this.label('Life', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.categoryChips(en.category, setN('category'))}</div>
+          {this.label('Sector', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.categoryChips(en.category, setN('category'))}</div>
           {this.label('Project', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.projectChips(en.project, setN('project'))}</div>
           {this.label('Priority', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.chips(PRIOS, 'priority', en.priority, setN('priority'))}</div>
         </div>
@@ -592,7 +592,7 @@ export default class Canvas extends React.Component<Props, S> {
           <textarea className="bv-ta" autoFocus value={d.text} onChange={(e) => this.setState({ draft: { ...this.state.draft, text: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submit(); } }} placeholder="What's on your mind?" rows={3}
             style={{ width: '100%', flex: 'none', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 20, lineHeight: 1.35, padding: '2px 0', caretColor: '#c9b8ff' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {row('Life', this.categoryChips(d.category, setD('category'), true))}
+            {row('Sector', this.categoryChips(d.category, setD('category'), true))}
             {row('Project', this.projectChips(d.project, setD('project'), true))}
             {row('Priority', this.chips(PRIOS, 'priority', d.priority, setD('priority'), true))}
           </div>
@@ -622,7 +622,7 @@ export default class Canvas extends React.Component<Props, S> {
           <div style={{ fontSize: 12, color: 'rgba(236,230,245,.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
           <div style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.4, color: 'rgba(201,184,255,.75)' }}>Beta. Export your notes now and then; a copy on your own disk beats trusting one database.</div>
         </div>
-        {item('New category', () => this.openCategoryEditor(), { icon: 'add-01' })}
+        {item('New sector', () => this.openCategoryEditor(), { icon: 'add-01' })}
         {item('New project', () => this.openProjectEditor(), { icon: 'add-01' })}
         <div style={{ height: 1, background: 'rgba(255,255,255,.1)', margin: '4px 6px' }} />
         {item('Export my notes', () => this.setState({ menu: false }), { icon: 'download-04', href: '/api/export' })}
@@ -636,7 +636,7 @@ export default class Canvas extends React.Component<Props, S> {
 
   /** Segmented view switcher (mobile bottom bar): three touch-sized segments under a sliding highlight. */
   renderSwitch(compact?: boolean) {
-    const s = this.state; const i = Math.max(0, VIEWS.findIndex((v) => v.id === s.view)); const short: Record<View, string> = { category: 'Life', project: 'Projects', priority: 'Priority' };
+    const s = this.state; const i = Math.max(0, VIEWS.findIndex((v) => v.id === s.view)); const short: Record<View, string> = { category: 'Sectors', project: 'Projects', priority: 'Priority' };
     return (
       <div role="tablist" aria-label="View" style={{ position: 'relative', display: 'grid', gridTemplateColumns: `repeat(${VIEWS.length}, 1fr)`, padding: 3, borderRadius: 999, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', flex: 1, minWidth: 0 }}>
         <div aria-hidden="true" style={{ position: 'absolute', top: 3, bottom: 3, left: 3, width: `calc((100% - 6px) / ${VIEWS.length})`, borderRadius: 999, background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', transform: `translateX(${i * 100}%)`, transition: 'transform .25s cubic-bezier(.2,.8,.2,1)', pointerEvents: 'none' }} />
@@ -654,7 +654,7 @@ export default class Canvas extends React.Component<Props, S> {
     const items: { label: string; icon: IconName; dx: number; dy: number; run: () => void }[] = [
       { label: 'Project', icon: 'folder-01', dx: -92, dy: -58, run: () => this.openProjectEditor() },
       { label: 'Note', icon: 'note-add', dx: -50, dy: -102, run: () => { if (focused) this.quickAddHere(); else this.setState({ adding: true }); } },
-      { label: 'Category', icon: 'tag-01', dx: 4, dy: -116, run: () => this.openCategoryEditor() },
+      { label: 'Sector', icon: 'tag-01', dx: 4, dy: -116, run: () => this.openCategoryEditor() },
     ];
     return items.map((it, i) => (
       <div key={it.label} aria-hidden={!open} style={{ position: 'absolute', left: 2, top: 2, width: 44, height: 44, pointerEvents: open ? 'auto' : 'none', opacity: open ? 1 : 0,
@@ -745,7 +745,7 @@ export default class Canvas extends React.Component<Props, S> {
         style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-end' : 'center', justifyContent: 'center', padding: mobile ? '0 10px 10px' : 24, cursor: 'default' }}>
         <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); this.saveCategory(); } }} style={{ width: '100%', maxWidth: 480, maxHeight: mobile ? '86vh' : 'calc(100vh - 48px)', overflow: 'auto', borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>{editing ? 'Edit category' : 'New category'}</div>
+            <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>{editing ? 'Edit sector' : 'New sector'}</div>
             <div style={{ fontSize: 11, color: 'rgba(236,230,245,.4)' }}>Enter to save · Esc to close</div>
           </div>
           {suggestions.length > 0 && (
@@ -821,7 +821,8 @@ export default class Canvas extends React.Component<Props, S> {
     }
     if (!this.drag) return; const dx = e.clientX - this.drag.sx, dy = e.clientY - this.drag.sy;
     if (!this.moved && Math.abs(dx) + Math.abs(dy) > 4) { this.moved = true; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
-    if (this.moved) this.setState({ glide: false, pan: { x: this.drag.px + dx, y: this.drag.py + dy } });
+    // Mobile: one finger is a gesture (flick left/right/up/down), never a pan; the canvas stays put.
+    if (this.moved && !this.lp(this.state).mobile) this.setState({ glide: false, pan: { x: this.drag.px + dx, y: this.drag.py + dy } });
   };
   panEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     this.pointers.delete(e.pointerId);

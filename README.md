@@ -1,6 +1,6 @@
 # Brainverse
 
-An invite-only "external brain": an infinite space canvas where notes live in floating areas, reshuffled by Categories / Projects / Priority. Built from the design handoff in `design_handoff_brainverse/`.
+An invite-only "external brain": an infinite space canvas where notes live in floating areas, reshuffled by Sectors / Projects / Priority. Built from the design handoff in `design_handoff_brainverse/`.
 
 Live: https://brainverse.mooibekeken.nl (Google login; only emails on the invite list get in, everyone else lands in a waiting room).
 
@@ -17,7 +17,7 @@ Live: https://brainverse.mooibekeken.nl (Google login; only emails on the invite
 1. Someone signs in with Google. If their email is on the list they are in; if not, they see the waiting room, which shows the address they used and asks them to message Rob. Their attempt is recorded in `access_requests` (one row per Google account, never expires).
 2. Rob adds them from his laptop: `npm run db:allow -- add jan@gmail.com "Jan from padel" --prod`. They reload and walk in. No deploy.
 3. `npm run db:allow -- list --prod` shows who is in and who is waiting.
-4. Every account gets four tutorial notes and four starter categories (Sport, Food, Habits, Business) on its first load. Categories and projects are both per user and managed inside the app.
+4. Every account gets four tutorial notes and four starter sectors (Sport, Food, Habits, Business) on its first load. Sectors (life areas, stored as `categories`) and projects are both per user and managed inside the app.
 5. Users can export everything as JSON and delete their own account from the menu. Deleting also removes their invite.
 
 Rows are keyed on the Google `sub` id (`users.id`), never the email, so an email change does not orphan anyone's notes.
@@ -86,11 +86,11 @@ Every note tile has a small calendar button, and the note panel has a "Plan on G
 2. Migrations are **not** part of the deploy. Apply them first from your laptop (see above).
 3. Domain: `brainverse.mooibekeken.nl` is added to the project; DNS needs a CNAME `brainverse` → `cname.vercel-dns.com`.
 
-## Categories and projects
+## Sectors and projects
 
 Both are yours to define, up to 24 each, and live in your prefs (`prefs.categories` / `prefs.projects`).
 
-- **Categories** are life areas. Each has a name, an icon and a colour (an oklch hue) that tints its notes and the note panel. The Categories view ends with a "New category" prompt; the account menu has one too. The editor offers a curated list of common areas (Health, Family, Finance, Travel, …), each with an icon, a colour and keyword auto-routing; tap one and adjust, or name your own. Every account starts with Sport, Food, Habits and Business, which can be renamed or removed like any other.
+- **Sectors** are life areas (called `categories` in the code and database). Each has a name, an icon and a colour (an oklch hue) that tints its notes and the note panel. The Sectors view ends with a "New sector" prompt; the account menu has one too. The editor offers a curated list of common areas (Health, Family, Finance, Travel, …), each with an icon, a colour and keyword auto-routing; tap one and adjust, or name your own. Every account starts with Sport, Food, Habits and Business, which can be renamed or removed like any other.
 - **Projects** are clusters for anything with a name: a trip, a client, a house move. Same editor, minus the colour.
 - Auto-routing runs only when a new note has no category or project chosen: a project wins when its name appears in the text, otherwise the first category whose name or (for one picked from the list) keywords match.
 - Removing a category or project keeps the notes; they show up in Unsorted until you tag them again.
@@ -103,7 +103,7 @@ Both are yours to define, up to 24 each, and live in your prefs (`prefs.categori
 
 On phones (viewport under 640px) the chrome moves to a bottom bar: `← Overview` / `← Area` on the left when something is focused, a segmented Life / Projects / Priority switcher in the middle (the highlight slides to the active view and follows swipes), and the `+` button on the right. The top edge keeps only the account avatar, which opens the account menu.
 
-Gestures: in the overview swipe `↑`/`↓` to glide from one area to the next (the next area parks just below the top edge), swipe `←`/`→` to cycle views; inside an area or note `←`/`→` moves between siblings. Pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; a pinch that stops halfway settles back onto the current level. One finger drags to pan. The focused area gets a white outline. Tapping `+` while an area is focused drops the new note into that area. The quick-add sheet sits at the top of the screen and the note panel is a full-height sheet; both shrink above the on-screen keyboard (`visualViewport`) so the text you are typing stays in view. The pencil on a category or project cluster opens its editor; the dashed "New category" / "New project" cluster at the end of each view creates one.
+Gestures: in the overview swipe `↑`/`↓` to glide from one area to the next (the next area parks just below the top edge), swipe `←`/`→` to cycle views; inside an area or note `←`/`→` moves between siblings. Pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; a pinch that stops halfway settles back onto the current level. One finger never pans on a phone: every swipe is a gesture, so the canvas only moves through swipes and pinches. The focused area gets a white outline. Tapping `+` while an area is focused drops the new note into that area. The quick-add sheet sits at the top of the screen and the note panel is a full-height sheet; both shrink above the on-screen keyboard (`visualViewport`) so the text you are typing stays in view. The pencil on a category or project cluster opens its editor; the dashed "New sector" / "New project" cluster at the end of each view creates one.
 
 ## Dev preview
 
