@@ -13,8 +13,9 @@ export class Sync {
   private listeners = new Set<(s: SyncStatus) => void>();
   private status: SyncStatus = 'synced';
 
-  constructor() {
-    if (typeof window !== 'undefined') {
+  /** `dry` keeps everything in memory and never talks to the server (the dev-only /preview route). */
+  constructor(private readonly dry = false) {
+    if (typeof window !== 'undefined' && !dry) {
       window.addEventListener('online', () => this.flush(0));
       window.addEventListener('beforeunload', () => { if (this.jobs.size) this.flushBeacon(); });
     }
@@ -40,6 +41,7 @@ export class Sync {
   }
 
   private put(key: string, job: Job) {
+    if (this.dry) return;
     this.jobs.set(key, job);
     this.set('saving');
     this.flush(350);

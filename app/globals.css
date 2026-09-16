@@ -31,3 +31,5 @@ button{-webkit-tap-highlight-color:transparent}
 textarea.bv-ta:focus{outline:none}
 input[type=date],input[type=time]{color-scheme:dark}
 @media (prefers-reduced-motion:reduce){.bv-drifter,.bv-star{animation:none!important}}
+/* focused cluster: wins from the hover rule above */
+.bv-cluster.bv-cluster-on{border-color:rgba(255,255,255,.55)!important}

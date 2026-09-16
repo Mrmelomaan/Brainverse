@@ -101,4 +101,10 @@ Both are yours to define, up to 24 each, and live in your prefs (`prefs.categori
 
 ## Touch
 
-On phones (viewport under 640px): pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; swipe `←`/`→` to cycle views in the overview or to move between sibling areas/notes. A pinch that stops halfway settles back onto the current level. One finger drags to pan; tapping `+` while an area is focused drops the new note into that area. The pencil on a category or project cluster opens its editor; the dashed "New category" / "New project" cluster at the end of each view creates one.
+On phones (viewport under 640px) the chrome moves to a bottom bar: `← Overview` / `← Area` on the left when something is focused, a segmented Life / Projects / Priority switcher in the middle (the highlight slides to the active view and follows swipes), and the `+` button on the right. The top edge keeps only the account avatar, which opens the account menu.
+
+Gestures: in the overview swipe `↑`/`↓` to glide from one area to the next (the next area parks just below the top edge), swipe `←`/`→` to cycle views; inside an area or note `←`/`→` moves between siblings. Pinch out (spread two fingers) over an area or note to zoom into it, pinch in to step back out; a pinch that stops halfway settles back onto the current level. One finger drags to pan. The focused area gets a white outline. Tapping `+` while an area is focused drops the new note into that area. The quick-add sheet sits at the top of the screen and the note panel is a full-height sheet; both shrink above the on-screen keyboard (`visualViewport`) so the text you are typing stays in view. The pencil on a category or project cluster opens its editor; the dashed "New category" / "New project" cluster at the end of each view creates one.
+
+## Dev preview
+
+`/preview` (development builds only, 404 elsewhere) renders the canvas with the tutorial notes in memory, no database or session needed and nothing is saved. Handy for checking layout on a phone-sized viewport.

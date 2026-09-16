@@ -32,6 +32,8 @@ export const authConfig = {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
       if (PUBLIC_PATHS.includes(pathname)) return true;
+      // Dev-only UI preview without a session (app/preview/page.tsx is a 404 outside development).
+      if (pathname === '/preview' && process.env.NODE_ENV === 'development') return true;
       const ok = !!auth?.user;
       if (!ok && pathname.startsWith('/api/')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       return ok;

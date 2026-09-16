@@ -14,7 +14,8 @@ import {
 import type { IconName } from '@/lib/icons';
 
 type Account = { id: string; email: string; name: string | null };
-type Props = { initial: { notes: Note[]; prefs: Prefs; account: Account }; origin?: string };
+/** `dry`: never sync (dev-only /preview route). */
+type Props = { initial: { notes: Note[]; prefs: Prefs; account: Account }; origin?: string; dry?: boolean };
 type Plan = { date: string; time: string; minutes: number };
 type ProjEdit = { id?: string; label: string; icon: IconName };
 /** `suggestionId` remembers which curated area a new category was picked from, so it keeps that id (and routing). */
@@ -23,6 +24,8 @@ type S = {
   view: View; notes: Note[]; rails: Rails; projects: UserProject[]; categories: UserCategory[]; pan: { x: number; y: number }; zoom: number; glide: boolean; focus: Focus; focusZoom: number;
   cIdx: number; commentDraft: string; adding: boolean; draft: Draft; vw: number; vh: number; toast: string | null; flash: string | null;
   ready: boolean; drifters: Drifter[]; sync: SyncStatus; plan: Plan; menu: boolean; projEdit: ProjEdit | null; catEdit: CatEdit | null; busy: boolean;
+  /** Mobile keyboard: `kb` is how much of the layout viewport the on-screen keyboard covers (px), `vvh` the visible height. */
+  kb: number; vvh: number;
 };
 /** `ghost` marks the "new project/category" prompt: it is laid out like a cluster but can never hold notes or focus. */
 type Group = { key: string; label: string; icon: IconName; hue?: number; rail?: boolean; ghost?: boolean; notes: Note[] };
@@ -64,18 +67,21 @@ export default class Canvas extends React.Component<Props, S> {
   onR!: () => void;
   onK!: (e: KeyboardEvent) => void;
   onW!: (e: WheelEvent) => void;
+  onVV!: () => void;
+  /** Mobile overview: index of the cluster currently parked at the top of the screen (vertical flicks step it). */
+  mobileIdx = 0;
 
   /** Per-account localStorage prefix. */
   ls: string;
 
   constructor(props: Props) {
     super(props);
-    this.sync = new Sync();
+    this.sync = new Sync(!!props.dry);
     this.ls = LS_PREFIX + props.initial.account.id + '.';
     const vw = 1280, vh = 800;
     const st: S = {
       view: props.initial.prefs.view, notes: props.initial.notes, rails: props.initial.prefs.rails, projects: props.initial.prefs.projects, categories: props.initial.prefs.categories, pan: { x: 0, y: 0 }, zoom: 1, glide: false, focus: null, focusZoom: 1,
-      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, catEdit: null, busy: false,
+      cIdx: 0, commentDraft: '', adding: false, draft: emptyDraft(), vw, vh, toast: null, flash: null, ready: false, drifters: [], sync: 'synced', plan: defaultPlan(), menu: false, projEdit: null, catEdit: null, busy: false, kb: 0, vvh: vh,
     };
     st.zoom = this.fitZoom(st); st.pan = this.centerPan(st);
     this.state = st;
@@ -89,10 +95,17 @@ export default class Canvas extends React.Component<Props, S> {
     this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns), ready: true, drifters: makeDrifters() });
     this.unsub = this.sync.onStatus((sync) => this.setState({ sync }));
     if (document.fonts?.ready) document.fonts.ready.then(() => this.measure());
-    if (ns.vw < 640) { try { if (!localStorage.getItem(this.ls + 'hint')) { localStorage.setItem(this.ls + 'hint', '1'); this.toast('Swipe ← → to move · pinch to zoom in or out', 5000); } } catch { /* private mode */ } }
+    if (ns.vw < 640) { try { if (!localStorage.getItem(this.ls + 'hint')) { localStorage.setItem(this.ls + 'hint', '1'); this.toast('Swipe ↑↓ to browse · ← → views · pinch to zoom', 5000); } } catch { /* private mode */ } }
 
     this.onR = () => { const ns = { ...this.state, vw: window.innerWidth, vh: window.innerHeight }; if (this.state.focus) this.setState({ vw: ns.vw, vh: ns.vh }); else this.setState({ vw: ns.vw, vh: ns.vh, zoom: this.fitZoom(ns), pan: this.centerPan(ns) }); };
     window.addEventListener('resize', this.onR);
+    // On-screen keyboard (iOS Safari keeps innerHeight, only the visual viewport shrinks): sheets anchor to the visible area.
+    this.onVV = () => {
+      const vv = window.visualViewport; if (!vv) return;
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)), vvh = Math.round(vv.height);
+      if (kb !== this.state.kb || vvh !== this.state.vvh) this.setState({ kb, vvh });
+    };
+    window.visualViewport?.addEventListener('resize', this.onVV); window.visualViewport?.addEventListener('scroll', this.onVV); this.onVV();
     this.onK = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       const typing = /TEXTAREA|INPUT|SELECT/.test(t?.tagName || '');
@@ -127,6 +140,7 @@ export default class Canvas extends React.Component<Props, S> {
   }
   componentWillUnmount() {
     window.removeEventListener('resize', this.onR); window.removeEventListener('keydown', this.onK);
+    window.visualViewport?.removeEventListener('resize', this.onVV); window.visualViewport?.removeEventListener('scroll', this.onVV);
     this.rootRef.current?.removeEventListener('wheel', this.onW); this.unsub?.();
   }
 
@@ -223,7 +237,7 @@ export default class Canvas extends React.Component<Props, S> {
   }
   fitZoom(s: Pick<S, 'vw' | 'rails'>) { const { worldW, mobile } = this.lp(s); return mobile ? 1 : Math.min(1, (s.vw - 32) / worldW); }
   centerPan(s: Pick<S, 'vw' | 'rails'>) { const { worldW, mobile } = this.lp(s); const z = this.fitZoom(s); return { x: Math.round((s.vw - worldW * z) / 2), y: mobile ? 96 : 120 }; }
-  overview(extra?: Partial<S>) { const s = { ...this.state, ...(extra || {}) }; this.cool = Date.now() + 700; this.setState({ ...(extra || {}), focus: null, zoom: this.fitZoom(s), pan: this.centerPan(s), glide: true } as S); }
+  overview(extra?: Partial<S>) { const s = { ...this.state, ...(extra || {}) }; this.cool = Date.now() + 700; this.mobileIdx = 0; this.setState({ ...(extra || {}), focus: null, zoom: this.fitZoom(s), pan: this.centerPan(s), glide: true } as S); }
   estH(n: number, W: number) { const perRow = W < 200 ? 1 : 2; const rows = Math.ceil(n / perRow); return 74 + (n ? rows * 94 + (rows - 1) * 10 : 44); }
   groups() {
     const { view, notes, projects, categories } = this.state;
@@ -303,8 +317,19 @@ export default class Canvas extends React.Component<Props, S> {
     if (Math.abs(dx) >= Math.abs(dy)) {
       if (f) { this.step(dx < 0 ? 1 : -1); return; }
       const i = VIEWS.findIndex((v) => v.id === this.state.view); this.setView(VIEWS[(i + (dx < 0 ? 1 : -1) + VIEWS.length) % VIEWS.length].id);
+      return;
     }
-    // Vertical flicks are intentionally unmapped: pinch out dives in, pinch in steps back (see panMove).
+    // Vertical flicks browse the overview column; inside an area or note they stay unmapped (pinch dives in / steps out).
+    if (!f) this.flickV(dy < 0 ? 1 : -1);
+  }
+  /** Mobile overview: glide so the next/previous cluster parks 80px below the top edge. The index is re-derived
+   *  from the current pan first, so a manual drag never desyncs it. */
+  flickV(dir: number) {
+    const s = this.state; const list = this.placed(); if (!list.length) return; const TOP = 80;
+    const top = (p: Placed) => s.pan.y + p.y * s.zoom;
+    let cur = 0; list.forEach((p, i) => { if (Math.abs(top(p) - TOP) < Math.abs(top(list[cur]) - TOP)) cur = i; });
+    const idx = clamp(cur + dir, 0, list.length - 1); this.mobileIdx = idx;
+    this.setState({ glide: true, pan: { x: s.pan.x, y: Math.round(TOP - list[idx].y * s.zoom) } });
   }
   /** Mobile pinch-out: focus whatever sits under the pinch midpoint (area in overview, note inside an area). */
   diveAt(mid: { x: number; y: number }) {
@@ -419,8 +444,8 @@ export default class Canvas extends React.Component<Props, S> {
     const editable = (view === 'project' || view === 'category') && !g.rail;
     const glyphColor = g.hue != null ? `oklch(85% 0.12 ${g.hue})` : '#f3eefc';
     return (
-      <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed={collapsed ? '1' : '0'} className="bv-cluster" onClick={onClick}
-        style={{ position: 'absolute', left: 0, top: 0, width: w, minHeight: collapsed ? h : 0, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s, width .5s, background .4s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: isF ? 'default' : 'pointer', padding: collapsed ? (mobile ? '12px 16px' : '16px 12px') : '18px 16px 16px', borderRadius: 22, border: '1px solid rgba(255,255,255,.08)', background: isF ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.028)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
+      <div key={g.key} data-cluster="1" data-key={g.key} data-collapsed={collapsed ? '1' : '0'} className={'bv-cluster' + (isF ? ' bv-cluster-on' : '')} onClick={onClick}
+        style={{ position: 'absolute', left: 0, top: 0, width: w, minHeight: collapsed ? h : 0, transform: `translate(${x}px, ${y}px)`, transition: 'transform .8s cubic-bezier(.2,.8,.2,1), opacity .45s, width .5s, background .4s, border-color .4s, box-shadow .4s', opacity: dim ? 0 : 1, pointerEvents: dim ? 'none' : 'auto', cursor: isF ? 'default' : 'pointer', padding: collapsed ? (mobile ? '12px 16px' : '16px 12px') : '18px 16px 16px', borderRadius: 22, border: `1px solid ${isF ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.08)'}`, background: isF ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.028)', boxShadow: isF ? '0 0 0 1px rgba(255,255,255,.25), 0 0 40px rgba(201,184,255,.18), inset 0 1px 0 rgba(255,255,255,.08)' : 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
         {collapsed ? (
           <div style={{ display: 'flex', flexDirection: mobile ? 'row' : 'column', alignItems: 'center', gap: 14, height: '100%' }}>
             <Icon name={g.icon} size={20} color={glyphColor} style={{ opacity: 0.95 }} />
@@ -482,10 +507,12 @@ export default class Canvas extends React.Component<Props, S> {
     const cms = en.comments; const ci = clamp(s.cIdx, 0, Math.max(0, cms.length - 1)); const cat = catOf(s.categories, en.category); const hue = cat ? cat.hue : null;
     const setN = (dim: 'category' | 'project' | 'priority') => (val: string | number | null) => this.updateNote(en.id, { [dim]: val } as Partial<Note>);
     const addComment = () => { const t = s.commentDraft.trim(); if (!t) return; const comments = [...cms, { id: uid(), text: t, at: new Date().toISOString() }]; this.updateNote(en.id, { comments }); this.setState({ commentDraft: '', cIdx: comments.length - 1 }); };
-    const pos: React.CSSProperties = mobile ? { left: 10, right: 10, bottom: 10, maxHeight: '58vh' } : s.vw >= 900 ? { right: 24, top: '50%', transform: 'translateY(-50%)', width: 380, maxHeight: 'calc(100vh - 48px)' } : { left: '50%', bottom: 16, transform: 'translateX(-50%)', width: 'min(480px, calc(100vw - 32px))', maxHeight: '52vh' };
+    // Mobile: a full-height sheet whose bottom edge follows the on-screen keyboard (see onVV), so the focused field is never covered.
+    const pos: React.CSSProperties = mobile ? { left: 10, right: 10, top: 10, bottom: 10 + s.kb, maxHeight: Math.max(200, s.vvh - 20), transition: 'bottom .15s' } : s.vw >= 900 ? { right: 24, top: '50%', transform: 'translateY(-50%)', width: 380, maxHeight: 'calc(100vh - 48px)' } : { left: '50%', bottom: 16, transform: 'translateX(-50%)', width: 'min(480px, calc(100vw - 32px))', maxHeight: '52vh' };
     const pillBtn = (cls: string, extra: React.CSSProperties): React.CSSProperties => ({ fontFamily: OX, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 18px', borderRadius: 999, cursor: 'pointer', ...extra });
     const planStart = () => { const d = new Date(`${s.plan.date}T${s.plan.time || '09:00'}:00`); return isNaN(d.getTime()) ? undefined : d; };
     const inputStyle: React.CSSProperties = { padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 13, outline: 'none', minWidth: 0 };
+    const keepInView = (e: React.FocusEvent<HTMLElement>) => { if (mobile) { const el = e.currentTarget; setTimeout(() => el.scrollIntoView({ block: 'nearest' }), 250); } };
     return (
       <div data-nopan="1" data-ui="1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
         style={{ position: 'absolute', ...pos, overflow: 'auto', borderRadius: 24, padding: '20px 20px 16px', background: hue != null ? `linear-gradient(180deg, oklch(80% 0.13 ${hue} / 0.14), rgba(255,255,255,.07))` : 'rgba(255,255,255,.09)', border: `1px solid ${tint(hue, 0.35)}`, backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', animation: `${s.vw >= 900 && !mobile ? 'bv-pop' : 'bv-pop'} .25s ease-out`, display: 'flex', flexDirection: 'column', gap: 14, cursor: 'default' }}>
@@ -493,7 +520,9 @@ export default class Canvas extends React.Component<Props, S> {
           <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>Note</div>
           {this.roundBtn({ onClick: () => this.back(), title: 'Back to area', size: 28, fontSize: 14, children: '×' })}
         </div>
-        <textarea className="bv-ta" value={en.text} onChange={(e) => this.updateNote(en.id, { text: e.target.value })} rows={3} style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: 0, caretColor: '#c9b8ff' }} />
+        <textarea className="bv-ta" aria-label="Note text" value={en.text} onChange={(e) => this.updateNote(en.id, { text: e.target.value })} rows={3} onFocus={keepInView}
+          style={mobile ? { width: '100%', flex: 'none', minHeight: 3 * 18 * 1.35 + 24, resize: 'none', border: '1px solid rgba(255,255,255,.1)', outline: 'none', background: 'rgba(255,255,255,.06)', borderRadius: 14, color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: '12px 12px', caretColor: '#c9b8ff' }
+            : { width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 18, lineHeight: 1.35, padding: 0, caretColor: '#c9b8ff' }} />
         <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start', paddingTop: 4 }}>
           {this.label('Life', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.categoryChips(en.category, setN('category'))}</div>
           {this.label('Project', { paddingTop: 9 })}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{this.projectChips(en.project, setN('project'))}</div>
@@ -528,7 +557,7 @@ export default class Canvas extends React.Component<Props, S> {
               <button type="button" className="bv-round" onClick={() => this.setState({ cIdx: (ci + 1) % cms.length })} style={{ width: 30, borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: 'rgba(236,230,245,.7)', cursor: 'pointer', fontSize: 16, padding: 0, flex: 'none' }}>›</button>
             </div>
           )}
-          <input className="bv-input" value={s.commentDraft} onChange={(e) => this.setState({ commentDraft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } }} placeholder="Add a comment, Enter to save"
+          <input className="bv-input" value={s.commentDraft} onChange={(e) => this.setState({ commentDraft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } }} onFocus={keepInView} placeholder="Add a comment, Enter to save"
             style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f3eefc', fontSize: 13.5, outline: 'none' }} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 2 }}>
@@ -550,14 +579,15 @@ export default class Canvas extends React.Component<Props, S> {
     );
     return (
       <div data-nopan="1" data-ui="1" onClick={() => this.setState({ adding: false })} onPointerDown={(e) => e.stopPropagation()}
-        style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-end' : 'center', justifyContent: 'center', padding: mobile ? '0 10px 10px' : 24, cursor: 'default' }}>
-        <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        style={{ position: 'absolute', inset: 0, background: 'rgba(8,4,16,.62)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: mobile ? 'flex-start' : 'center', justifyContent: 'center', padding: mobile ? '64px 10px 10px' : 24, cursor: 'default' }}>
+        {/* Mobile: top-anchored so the keyboard never covers it; sized to the visual viewport and scrollable inside (see onVV). */}
+        <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, maxHeight: mobile ? Math.max(180, s.vvh - 64 - 16) : undefined, overflow: mobile ? 'auto' : undefined, borderRadius: 24, padding: '22px 22px 18px', background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 30px 80px rgba(0,0,0,.5)', backdropFilter: 'blur(24px) saturate(1.2)', WebkitBackdropFilter: 'blur(24px) saturate(1.2)', animation: 'bv-pop .25s ease-out', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontFamily: OX, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: '#c9b8ff' }}>Brain dump</div>
             <div style={{ fontSize: 11, color: 'rgba(236,230,245,.4)' }}>Enter to add · Esc to close</div>
           </div>
           <textarea className="bv-ta" autoFocus value={d.text} onChange={(e) => this.setState({ draft: { ...this.state.draft, text: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submit(); } }} placeholder="What's on your mind?" rows={3}
-            style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 20, lineHeight: 1.35, padding: '2px 0', caretColor: '#c9b8ff' }} />
+            style={{ width: '100%', flex: 'none', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: '#f3eefc', fontSize: 20, lineHeight: 1.35, padding: '2px 0', caretColor: '#c9b8ff' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {row('Life', this.categoryChips(d.category, setD('category'), true))}
             {row('Project', this.projectChips(d.project, setD('project'), true))}
@@ -598,6 +628,42 @@ export default class Canvas extends React.Component<Props, S> {
         <div style={{ height: 1, background: 'rgba(255,255,255,.1)', margin: '4px 6px' }} />
         {item(s.busy ? 'Deleting…' : 'Delete my account', () => this.deleteAccountNow(), { icon: 'delete-02', danger: true })}
       </div>
+    );
+  }
+
+  /** Segmented view switcher (mobile bottom bar): three touch-sized segments under a sliding highlight. */
+  renderSwitch(compact?: boolean) {
+    const s = this.state; const i = Math.max(0, VIEWS.findIndex((v) => v.id === s.view)); const short: Record<View, string> = { category: 'Life', project: 'Projects', priority: 'Priority' };
+    return (
+      <div role="tablist" aria-label="View" style={{ position: 'relative', display: 'grid', gridTemplateColumns: `repeat(${VIEWS.length}, 1fr)`, padding: 3, borderRadius: 999, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', flex: 1, minWidth: 0 }}>
+        <div aria-hidden="true" style={{ position: 'absolute', top: 3, bottom: 3, left: 3, width: `calc((100% - 6px) / ${VIEWS.length})`, borderRadius: 999, background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', transform: `translateX(${i * 100}%)`, transition: 'transform .25s cubic-bezier(.2,.8,.2,1)', pointerEvents: 'none' }} />
+        {VIEWS.map((v) => { const on = s.view === v.id; return (
+          <button key={v.id} type="button" role="tab" aria-selected={on} className="bv-tab" onClick={() => this.setView(v.id)}
+            style={{ position: 'relative', fontFamily: OX, fontSize: compact ? 8.5 : 9.5, letterSpacing: compact ? '.06em' : '.12em', textTransform: 'uppercase', padding: compact ? '0 3px' : '0 6px', minHeight: 40, borderRadius: 999, border: 'none', background: 'transparent', color: on ? '#f3eefc' : 'rgba(236,230,245,.55)', cursor: 'pointer', transition: 'color .25s', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{short[v.id]}</button>
+        ); })}
+      </div>
+    );
+  }
+  /** Mobile chrome: an avatar top-right (opens the account menu) and a bottom bar with back, the view switcher and +. */
+  renderMobileChrome() {
+    const s = this.state; const f = s.focus; const a = this.props.initial.account;
+    const initials = (a.name || a.email).split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
+    return (
+      <>
+        <div data-nopan="1" data-ui="1" data-menu="1" style={{ position: 'absolute', right: 14, top: 'max(12px, env(safe-area-inset-top))' }}>
+          <button type="button" className="bv-round" title="Account" aria-label="Account" onClick={(e) => { e.stopPropagation(); this.setState({ menu: !s.menu }); }}
+            style={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'linear-gradient(135deg,#c9b8ff,#7f5cf0)', color: '#120a1f', fontFamily: OX, fontWeight: 700, fontSize: 12, letterSpacing: '.04em', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0, boxShadow: '0 6px 20px rgba(0,0,0,.35)' }}>{initials}</button>
+          {s.menu && this.renderMenu()}
+        </div>
+        <div data-nopan="1" data-ui="1" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 12px', paddingBottom: 'max(10px, env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(0deg, rgba(18,10,31,.96) 0%, rgba(18,10,31,.8) 70%, rgba(18,10,31,0) 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 4, borderRadius: 999, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+            {f && <button type="button" className="bv-pill" onClick={() => this.back()} style={{ fontFamily: OX, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', padding: '0 10px', minHeight: 40, borderRadius: 999, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'rgba(236,230,245,.75)', cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none' }}>{f.type === 'note' ? '← Area' : '← Overview'}</button>}
+            {this.renderSwitch(!!f)}
+          </div>
+          <button type="button" className="bv-fab" onClick={(e) => { e.stopPropagation(); if (f) this.quickAddHere(); else this.setState({ adding: true }); }} title="Add a thought" aria-label="Add a thought"
+            style={{ flex: 'none', display: 'grid', width: 48, height: 48, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 26, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 28px rgba(169,140,255,.5), 0 8px 24px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>+</button>
+        </div>
+      </>
     );
   }
 
@@ -751,12 +817,14 @@ export default class Canvas extends React.Component<Props, S> {
     return (
       <div ref={this.rootRef} style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at 30% 20%, #1c1130 0%, #120a1f 55%, #0b0616 100%)', overflow: 'hidden', touchAction: 'none', userSelect: 'none', cursor: 'grab' }}
         onClick={(e) => { if (s.menu && !(e.target as HTMLElement).closest('[data-menu]')) this.setState({ menu: false }); if (this.moved || !f || s.adding || (e.target as HTMLElement).closest('[data-nopan]') || (e.target as HTMLElement).closest('[data-cluster]')) return; this.back(); }}
-        onPointerDown={this.panStart} onPointerMove={this.panMove} onPointerUp={this.panEnd} onPointerCancel={this.panEnd}>
+        onPointerDown={this.panStart} onPointerMove={this.panMove} onPointerUp={this.panEnd} onPointerCancel={this.panEnd}
+        onScroll={(e) => { e.currentTarget.scrollTop = 0; e.currentTarget.scrollLeft = 0; }}>
         <Sky panX={s.pan.x} panY={s.pan.y} vw={s.vw} vh={s.vh} drifters={s.drifters} />
         <div ref={this.worldRef} style={{ position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', transform: `translate(${s.pan.x}px, ${s.pan.y}px) scale(${s.zoom})`, transition: s.glide ? 'transform .85s cubic-bezier(.2,.8,.2,1)' : 'none', willChange: 'transform', opacity: s.ready ? 1 : 0 }}>
           {s.ready && this.placed().map((p) => this.renderCluster(p))}
         </div>
 
+        {mobile ? this.renderMobileChrome() : (
         <div data-nopan="1" data-ui="1" style={{ position: 'absolute', left: 0, right: 0, top: 0, padding: mobile ? '14px 14px' : '22px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(18,10,31,.92) 0%, rgba(18,10,31,.6) 65%, rgba(18,10,31,0) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, pointerEvents: 'auto', minWidth: 0 }}>
             <div style={{ fontFamily: OX, fontWeight: 700, fontSize: mobile ? 12 : 16, letterSpacing: mobile ? '.18em' : '.28em', color: '#f3eefc', textShadow: '0 0 18px rgba(201,184,255,.55)', whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>BRAINVERSE</div>
@@ -777,11 +845,12 @@ export default class Canvas extends React.Component<Props, S> {
             </div>
           </div>
         </div>
+        )}
 
-        {s.toast && <div style={{ position: 'absolute', left: '50%', bottom: mobile ? 104 : 112, transform: 'translateX(-50%)', padding: '10px 16px', borderRadius: 999, background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.18)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', fontFamily: OX, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#f3eefc', animation: 'bv-pop .3s ease-out', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{s.toast}</div>}
+        {s.toast && <div style={{ position: 'absolute', left: '50%', bottom: mobile ? 84 : 112, transform: 'translateX(-50%)', padding: '10px 16px', borderRadius: 999, background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.18)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', fontFamily: OX, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#f3eefc', animation: 'bv-pop .3s ease-out', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{s.toast}</div>}
 
-        <button type="button" data-nopan="1" data-ui="1" className="bv-fab" onClick={(e) => { e.stopPropagation(); if (mobile && f) this.quickAddHere(); else this.setState({ adding: true }); }} title="Add a thought (N)"
-          style={{ position: 'absolute', ...(mobile ? { left: '50%', bottom: 26, marginLeft: -30 } : { right: 32, bottom: 32 }), display: en && mobile ? 'none' : 'grid', width: 60, height: 60, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 30, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 34px rgba(169,140,255,.55), 0 10px 30px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>+</button>
+        {!mobile && <button type="button" data-nopan="1" data-ui="1" className="bv-fab" onClick={(e) => { e.stopPropagation(); this.setState({ adding: true }); }} title="Add a thought (N)"
+          style={{ position: 'absolute', right: 32, bottom: 32, display: 'grid', width: 60, height: 60, borderRadius: '50%', border: '1px solid rgba(255,255,255,.3)', background: 'radial-gradient(circle at 30% 30%, #e6dcff 0%, #a98cff 45%, #6b45e6 100%)', color: '#120a1f', fontSize: 30, lineHeight: 1, fontWeight: 300, cursor: 'pointer', boxShadow: '0 0 34px rgba(169,140,255,.55), 0 10px 30px rgba(0,0,0,.4)', placeItems: 'center', padding: 0, transition: 'transform .2s' }}>+</button>}
 
         {en && this.renderPanel(en)}
         {s.adding && this.renderAdd()}

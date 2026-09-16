@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description: 'A private universe for everything on your mind.',
   robots: { index: false, follow: false },
 };
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, maximumScale: 1, userScalable: false, viewportFit: 'cover', themeColor: '#120a1f' };
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, maximumScale: 1, userScalable: false, viewportFit: 'cover', interactiveWidget: 'resizes-content', themeColor: '#120a1f' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
